@@ -42,6 +42,7 @@ export class SshQueryClient extends EventEmitter {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
   private fatalError: boolean = false;
+  private reconnecting: boolean = false;
 
   constructor(private options: SshQueryClientOptions) {
     super();
@@ -84,6 +85,7 @@ export class SshQueryClient extends EventEmitter {
             if (!this.connected && this.bannerReceived) {
               this.connected = true;
               this.reconnectAttempt = 0;
+              this.reconnecting = false;
               this.startKeepalive();
               this.emit('ready');
               if (!settled) { settled = true; clearTimeout(connectTimeout); resolve(); }
@@ -137,7 +139,8 @@ export class SshQueryClient extends EventEmitter {
         port: this.options.port,
         username: this.options.username,
         password: this.options.password,
-        keepaliveInterval: 0, // We handle keepalive ourselves
+        keepaliveInterval: 30000, // TCP-level keepalive every 30s
+        keepaliveCountMax: 3, // Disconnect after 3 missed keepalives (~90s)
         readyTimeout: 10000,
       });
     });
@@ -228,6 +231,25 @@ export class SshQueryClient extends EventEmitter {
       this.ssh = null;
     }
     this.connected = false;
+  }
+
+  private forceDisconnect(): void {
+    this.connected = false;
+    this.bannerReceived = false;
+    this.stopKeepalive();
+    this.rejectAllPending('Keepalive timeout');
+    if (this.shell) {
+      try { this.shell.close(); } catch {}
+      this.shell = null;
+    }
+    if (this.ssh) {
+      try { this.ssh.end(); } catch {}
+      this.ssh = null;
+    }
+    if (!this.destroyed) {
+      this.emit('close');
+      this.scheduleReconnect();
+    }
   }
 
   // --- Internals ---
@@ -335,13 +357,21 @@ export class SshQueryClient extends EventEmitter {
 
   private startKeepalive(): void {
     this.stopKeepalive();
+    let consecutiveFailures = 0;
     this.keepaliveTimer = setInterval(() => {
       if (this.connected) {
-        this.executeCommand('whoami', 5000).catch(() => {
-          // Keepalive failure will trigger disconnect detection
-        });
+        this.executeCommand('whoami', 5000)
+          .then(() => { consecutiveFailures = 0; })
+          .catch((err) => {
+            consecutiveFailures++;
+            console.warn(`[SshQueryClient] Keepalive failed for ${this.options.host}:${this.options.port} (${consecutiveFailures}/3): ${err.message}`);
+            if (consecutiveFailures >= 3) {
+              console.error(`[SshQueryClient] Keepalive failed 3 times, forcing disconnect for ${this.options.host}:${this.options.port}`);
+              this.forceDisconnect();
+            }
+          });
       }
-    }, 60000);
+    }, 30000);
   }
 
   private stopKeepalive(): void {
@@ -352,13 +382,20 @@ export class SshQueryClient extends EventEmitter {
   }
 
   private scheduleReconnect(): void {
-    if (this.destroyed || this.fatalError) return;
+    if (this.destroyed || this.fatalError || this.reconnecting) return;
+    this.reconnecting = true;
+
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
 
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempt), 30000);
     console.log(`[SshQueryClient] Reconnecting to ${this.options.host}:${this.options.port} in ${delay}ms (attempt ${this.reconnectAttempt + 1})`);
 
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectAttempt++;
+      this.reconnecting = false;
       try {
         await this.connect();
       } catch (err: any) {
