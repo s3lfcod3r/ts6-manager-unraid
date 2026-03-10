@@ -32,9 +32,7 @@ services:
       - ts6-network
 
   sidecar:
-    build:
-      context: .
-      dockerfile: Dockerfile.sidecar
+    image: clusterzx/ts6-manager:sidecar
     container_name: ts6-sidecar
     restart: unless-stopped
     environment:
