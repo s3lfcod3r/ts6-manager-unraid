@@ -34,7 +34,9 @@ import {
   Volume2, VolumeX, Upload, Search, Download, ListMusic, Shuffle,
   Repeat, Repeat1, Power, PowerOff, RefreshCw, Pencil, X, Loader2,
   Youtube, FileAudio, Link, GripVertical, Music2, Radio, Clock,
+  Video,
 } from 'lucide-react';
+import { VideoStreamTab } from '@/components/video/VideoStreamTab';
 import { toast } from 'sonner';
 import { formatBytes } from '@/lib/utils';
 import type { MusicBotSummary, PlaybackState, SongInfo, PlaylistSummary, PlaylistDetail, YouTubeSearchResult, RadioStationInfo, RadioPreset } from '@ts6/common';
@@ -1431,6 +1433,60 @@ function RadioTab() {
   );
 }
 
+// ─── Video Streaming Tab ─────────────────────────────────────────────────────
+
+function VideoTab() {
+  const { data } = useMusicBots();
+  const bots = Array.isArray(data) ? data : [];
+  const [selectedBotId, setSelectedBotId] = useState<number | null>(null);
+
+  // Auto-select first running bot
+  const runningBots = bots.filter((b: MusicBotSummary) => b.status !== 'stopped' && b.status !== 'error');
+  useEffect(() => {
+    if (!selectedBotId && runningBots.length > 0) {
+      setSelectedBotId(runningBots[0].id);
+    }
+  }, [runningBots, selectedBotId]);
+
+  const selectedBot = bots.find((b: MusicBotSummary) => b.id === selectedBotId);
+
+  return (
+    <div className="space-y-4">
+      {bots.length === 0 ? (
+        <EmptyState icon={Video} title="No bots available" description="Create a music bot first, then use it for video streaming." />
+      ) : (
+        <>
+          {/* Bot selector */}
+          <div className="flex items-center gap-3">
+            <Label className="shrink-0">Select Bot:</Label>
+            <Select
+              value={selectedBotId ? String(selectedBotId) : ''}
+              onValueChange={(v) => setSelectedBotId(parseInt(v))}
+            >
+              <SelectTrigger className="w-64">
+                <SelectValue placeholder="Choose a bot..." />
+              </SelectTrigger>
+              <SelectContent>
+                {bots.map((b: MusicBotSummary) => (
+                  <SelectItem key={b.id} value={String(b.id)}>
+                    {b.name} — {b.status}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {selectedBot ? (
+            <VideoStreamTab botId={selectedBot.id} botStatus={selectedBot.status} />
+          ) : (
+            <p className="text-sm text-muted-foreground">Select a bot to manage video streaming.</p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 export default function MusicBots() {
@@ -1446,12 +1502,14 @@ export default function MusicBots() {
       <Tabs defaultValue="bots" className="space-y-4">
         <TabsList>
           <TabsTrigger value="bots"><Music2 className="h-3.5 w-3.5 mr-1.5" /> Bots</TabsTrigger>
+          <TabsTrigger value="video"><Video className="h-3.5 w-3.5 mr-1.5" /> Video</TabsTrigger>
           <TabsTrigger value="library"><FileAudio className="h-3.5 w-3.5 mr-1.5" /> Library</TabsTrigger>
           <TabsTrigger value="playlists"><ListMusic className="h-3.5 w-3.5 mr-1.5" /> Playlists</TabsTrigger>
           <TabsTrigger value="radio"><Radio className="h-3.5 w-3.5 mr-1.5" /> Radio</TabsTrigger>
         </TabsList>
 
         <TabsContent value="bots"><BotsTab /></TabsContent>
+        <TabsContent value="video"><VideoTab /></TabsContent>
         <TabsContent value="library"><LibraryTab /></TabsContent>
         <TabsContent value="playlists"><PlaylistsTab /></TabsContent>
         <TabsContent value="radio"><RadioTab /></TabsContent>

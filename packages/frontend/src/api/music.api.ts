@@ -34,6 +34,20 @@ export const musicBotsApi = {
   clearQueue: (id: number) => api.delete(`/music-bots/${id}/queue`).then((r) => r.data),
   shuffle: (id: number, enabled: boolean) => api.post(`/music-bots/${id}/queue/shuffle`, { enabled }).then((r) => r.data),
   repeat: (id: number, mode: string) => api.post(`/music-bots/${id}/queue/repeat`, { mode }).then((r) => r.data),
+
+  // Video Streaming
+  startStream: (id: number, source: string, preset?: string) =>
+    api.post(`/music-bots/${id}/stream/start`, { source, preset }).then((r) => r.data),
+  stopStream: (id: number) => api.post(`/music-bots/${id}/stream/stop`).then((r) => r.data),
+  setStreamSource: (id: number, source: string) =>
+    api.post(`/music-bots/${id}/stream/source`, { source }).then((r) => r.data),
+  streamStatus: (id: number) => api.get(`/music-bots/${id}/stream/status`).then((r) => r.data),
+  kickViewer: (id: number, clid: number) => api.delete(`/music-bots/${id}/stream/viewer/${clid}`).then((r) => r.data),
+  webrtcOffer: (id: number) => api.post(`/music-bots/${id}/stream/webrtc/offer`).then((r) => r.data),
+  webrtcAnswer: (id: number, sdp: string) =>
+    api.post(`/music-bots/${id}/stream/webrtc/answer`, { sdp }).then((r) => r.data),
+  webrtcIce: (id: number, candidate: string, sdpMid: string, sdpMLineIndex: number) =>
+    api.post(`/music-bots/${id}/stream/webrtc/ice`, { candidate, sdpMid, sdpMLineIndex }).then((r) => r.data),
 };
 
 // === Music Library API ===

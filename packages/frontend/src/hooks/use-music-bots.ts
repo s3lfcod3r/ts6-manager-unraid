@@ -202,3 +202,55 @@ export function useSetRepeat() {
     onSuccess: (_, { botId }) => qc.invalidateQueries({ queryKey: ['music-bot-state', botId] }),
   });
 }
+
+// === Video Streaming Hooks ===
+
+export function useVideoStreamStatus(botId: number | null) {
+  return useQuery({
+    queryKey: ['video-stream-status', botId],
+    queryFn: () => musicBotsApi.streamStatus(botId!),
+    enabled: !!botId,
+    refetchInterval: 2000,
+  });
+}
+
+export function useStartVideoStream() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ botId, source, preset }: { botId: number; source: string; preset?: string }) =>
+      musicBotsApi.startStream(botId, source, preset),
+    onSuccess: (_, { botId }) => {
+      qc.invalidateQueries({ queryKey: ['video-stream-status', botId] });
+      qc.invalidateQueries({ queryKey: ['music-bot-state', botId] });
+    },
+  });
+}
+
+export function useStopVideoStream() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (botId: number) => musicBotsApi.stopStream(botId),
+    onSuccess: (_, botId) => {
+      qc.invalidateQueries({ queryKey: ['video-stream-status', botId] });
+      qc.invalidateQueries({ queryKey: ['music-bot-state', botId] });
+    },
+  });
+}
+
+export function useSetStreamSource() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ botId, source }: { botId: number; source: string }) =>
+      musicBotsApi.setStreamSource(botId, source),
+    onSuccess: (_, { botId }) => qc.invalidateQueries({ queryKey: ['video-stream-status', botId] }),
+  });
+}
+
+export function useKickVideoViewer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ botId, clid }: { botId: number; clid: number }) =>
+      musicBotsApi.kickViewer(botId, clid),
+    onSuccess: (_, { botId }) => qc.invalidateQueries({ queryKey: ['video-stream-status', botId] }),
+  });
+}
