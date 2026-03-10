@@ -13,8 +13,6 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-	"time"
-
 	"github.com/pion/interceptor"
 	"github.com/pion/interceptor/pkg/intervalpli"
 	"github.com/pion/rtp"
@@ -83,13 +81,11 @@ type Sidecar struct {
 	source     string
 	running    bool
 
-	videoTsFirst   uint32
-	videoTsGot     bool
-	videoWallFirst int64
-	audioTsFirst   uint32
-	audioTsGot     bool
-	audioWallFirst int64
-	tsLock         sync.Mutex
+	videoTsFirst uint32
+	videoTsGot   bool
+	audioTsFirst uint32
+	audioTsGot   bool
+	tsLock       sync.Mutex
 }
 
 func NewSidecar() *Sidecar {
@@ -148,27 +144,24 @@ func (s *Sidecar) readVideoRTP() {
 			continue
 		}
 
+		// Simply subtract the first timestamp to normalize to zero-based.
+		// FFmpeg already guarantees A/V sync within a single invocation,
+		// so no cross-stream wallclock correction is needed.
 		s.tsLock.Lock()
 		if !s.videoTsGot {
 			s.videoTsFirst = pkt.Timestamp
-			s.videoWallFirst = time.Now().UnixNano()
 			s.videoTsGot = true
-			log.Printf("[VIDEO] First ts=%d wall=%d", pkt.Timestamp, s.videoWallFirst)
+			log.Printf("[VIDEO] First ts=%d", pkt.Timestamp)
 		}
 		first := s.videoTsFirst
-		var offsetTicks uint32
-		if s.audioTsGot && s.videoTsGot {
-			wallDelta := s.videoWallFirst - s.audioWallFirst
-			offsetTicks = uint32(wallDelta * 90000 / 1_000_000_000)
-		}
 		s.tsLock.Unlock()
 
-		pkt.Timestamp = (pkt.Timestamp - first) + offsetTicks
+		pkt.Timestamp = pkt.Timestamp - first
 		count++
 
-		if count <= 5 || count%300 == 0 {
-			log.Printf("[VIDEO] #%d ts=%d (%.3fs) offset=%d marker=%v",
-				count, pkt.Timestamp, float64(pkt.Timestamp)/90000.0, offsetTicks, pkt.Marker)
+		if count <= 3 || count%600 == 0 {
+			log.Printf("[VIDEO] #%d ts=%d (%.3fs) marker=%v",
+				count, pkt.Timestamp, float64(pkt.Timestamp)/90000.0, pkt.Marker)
 		}
 
 		s.peersLock.RLock()
@@ -199,27 +192,22 @@ func (s *Sidecar) readAudioRTP() {
 			continue
 		}
 
+		// Simply subtract the first timestamp to normalize to zero-based.
 		s.tsLock.Lock()
 		if !s.audioTsGot {
 			s.audioTsFirst = pkt.Timestamp
-			s.audioWallFirst = time.Now().UnixNano()
 			s.audioTsGot = true
-			log.Printf("[AUDIO] First ts=%d wall=%d", pkt.Timestamp, s.audioWallFirst)
+			log.Printf("[AUDIO] First ts=%d", pkt.Timestamp)
 		}
 		first := s.audioTsFirst
-		var offsetTicks uint32
-		if s.audioTsGot && s.videoTsGot {
-			wallDelta := s.audioWallFirst - s.videoWallFirst
-			offsetTicks = uint32(wallDelta * 48000 / 1_000_000_000)
-		}
 		s.tsLock.Unlock()
 
-		pkt.Timestamp = (pkt.Timestamp - first) + offsetTicks
+		pkt.Timestamp = pkt.Timestamp - first
 		count++
 
-		if count <= 5 || count%500 == 0 {
-			log.Printf("[AUDIO] #%d ts=%d (%.3fs) offset=%d",
-				count, pkt.Timestamp, float64(pkt.Timestamp)/48000.0, offsetTicks)
+		if count <= 3 || count%1000 == 0 {
+			log.Printf("[AUDIO] #%d ts=%d (%.3fs)",
+				count, pkt.Timestamp, float64(pkt.Timestamp)/48000.0)
 		}
 
 		s.peersLock.RLock()
