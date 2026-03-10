@@ -12,9 +12,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
+	"time"
 	"github.com/pion/interceptor"
 	"github.com/pion/interceptor/pkg/intervalpli"
+	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 )
@@ -58,13 +61,25 @@ func getFfmpegPath() string {
 	return envOrDefault("FFMPEG_PATH", "ffmpeg")
 }
 
+// NTP epoch offset: seconds between 1900-01-01 and 1970-01-01
+const ntpEpochOffset = 2208988800
+
+func toNTPTime(t time.Time) uint64 {
+	secs := uint64(t.Unix()) + ntpEpochOffset
+	frac := uint64(t.Nanosecond()) * (1 << 32) / 1e9
+	return secs<<32 | frac
+}
+
 type Peer struct {
 	ID         string
 	PC         *webrtc.PeerConnection
 	VideoTrack *webrtc.TrackLocalStaticRTP
 	AudioTrack *webrtc.TrackLocalStaticRTP
+	VideoSSRC  uint32
+	AudioSSRC  uint32
 	Active     bool
 	mu         sync.Mutex
+	stopSR     chan struct{}
 }
 
 type Sidecar struct {
@@ -81,11 +96,13 @@ type Sidecar struct {
 	source     string
 	running    bool
 
-	videoTsFirst uint32
-	videoTsGot   bool
-	audioTsFirst uint32
-	audioTsGot   bool
-	tsLock       sync.Mutex
+	// Atomic timestamps for RTCP Sender Report generation
+	lastVideoRTPTs uint64 // atomic: latest video RTP timestamp seen
+	lastAudioRTPTs uint64 // atomic: latest audio RTP timestamp seen
+	videoPktCount  uint64 // atomic
+	videOctetCount uint64 // atomic
+	audioPktCount  uint64 // atomic
+	audioOctetCount uint64 // atomic
 }
 
 func NewSidecar() *Sidecar {
@@ -94,13 +111,6 @@ func NewSidecar() *Sidecar {
 	}
 }
 
-func (s *Sidecar) resetTimestamps() {
-	s.tsLock.Lock()
-	s.videoTsGot = false
-	s.audioTsGot = false
-	s.tsLock.Unlock()
-	log.Printf("[SYNC] Timestamp normalization reset")
-}
 
 func (s *Sidecar) StartRTP() error {
 	var err error
@@ -144,19 +154,10 @@ func (s *Sidecar) readVideoRTP() {
 			continue
 		}
 
-		// Simply subtract the first timestamp to normalize to zero-based.
-		// FFmpeg already guarantees A/V sync within a single invocation,
-		// so no cross-stream wallclock correction is needed.
-		s.tsLock.Lock()
-		if !s.videoTsGot {
-			s.videoTsFirst = pkt.Timestamp
-			s.videoTsGot = true
-			log.Printf("[VIDEO] First ts=%d", pkt.Timestamp)
-		}
-		first := s.videoTsFirst
-		s.tsLock.Unlock()
-
-		pkt.Timestamp = pkt.Timestamp - first
+		// Track latest timestamp for RTCP Sender Reports
+		atomic.StoreUint64(&s.lastVideoRTPTs, uint64(pkt.Timestamp))
+		atomic.AddUint64(&s.videoPktCount, 1)
+		atomic.AddUint64(&s.videOctetCount, uint64(len(pkt.Payload)))
 		count++
 
 		if count <= 3 || count%600 == 0 {
@@ -192,17 +193,10 @@ func (s *Sidecar) readAudioRTP() {
 			continue
 		}
 
-		// Simply subtract the first timestamp to normalize to zero-based.
-		s.tsLock.Lock()
-		if !s.audioTsGot {
-			s.audioTsFirst = pkt.Timestamp
-			s.audioTsGot = true
-			log.Printf("[AUDIO] First ts=%d", pkt.Timestamp)
-		}
-		first := s.audioTsFirst
-		s.tsLock.Unlock()
-
-		pkt.Timestamp = pkt.Timestamp - first
+		// Track latest timestamp for RTCP Sender Reports
+		atomic.StoreUint64(&s.lastAudioRTPTs, uint64(pkt.Timestamp))
+		atomic.AddUint64(&s.audioPktCount, 1)
+		atomic.AddUint64(&s.audioOctetCount, uint64(len(pkt.Payload)))
 		count++
 
 		if count <= 3 || count%1000 == 0 {
@@ -300,6 +294,7 @@ func (s *Sidecar) CreatePeer(id string) (string, error) {
 		VideoTrack: videoTrack,
 		AudioTrack: audioTrack,
 		Active:     false,
+		stopSR:     make(chan struct{}),
 	}
 
 	pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
@@ -309,6 +304,20 @@ func (s *Sidecar) CreatePeer(id string) (string, error) {
 			peer.mu.Lock()
 			peer.Active = true
 			peer.mu.Unlock()
+			// Resolve SSRCs NOW — they are only valid after negotiation
+			for _, sender := range pc.GetSenders() {
+				params := sender.GetParameters()
+				if len(params.Encodings) > 0 {
+					ssrc := uint32(params.Encodings[0].SSRC)
+					if sender.Track() == videoTrack {
+						peer.VideoSSRC = ssrc
+						log.Printf("[Peer %s] Video SSRC resolved: %d", id, ssrc)
+					} else if sender.Track() == audioTrack {
+						peer.AudioSSRC = ssrc
+						log.Printf("[Peer %s] Audio SSRC resolved: %d", id, ssrc)
+					}
+				}
+			}
 		case webrtc.ICEConnectionStateDisconnected, webrtc.ICEConnectionStateFailed, webrtc.ICEConnectionStateClosed:
 			peer.mu.Lock()
 			peer.Active = false
@@ -319,10 +328,14 @@ func (s *Sidecar) CreatePeer(id string) (string, error) {
 	s.peersLock.Lock()
 	if old, exists := s.peers[id]; exists {
 		old.Active = false
+		close(old.stopSR)
 		old.PC.Close()
 	}
 	s.peers[id] = peer
 	s.peersLock.Unlock()
+
+	// Start periodic RTCP Sender Report injection for A/V sync
+	go s.sendSenderReports(peer)
 
 	offer, err := pc.CreateOffer(nil)
 	if err != nil {
@@ -336,6 +349,98 @@ func (s *Sidecar) CreatePeer(id string) (string, error) {
 	<-gatherComplete
 
 	return pc.LocalDescription().SDP, nil
+}
+
+// sendSenderReports periodically sends RTCP Sender Reports with synchronized
+// NTP timestamps for both audio and video, enabling the browser to correlate
+// the two RTP clocks and maintain lip-sync.
+func (s *Sidecar) sendSenderReports(peer *Peer) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	cname := "ts6-stream"
+	srCount := 0
+
+	for {
+		select {
+		case <-peer.stopSR:
+			return
+		case <-ticker.C:
+			if !peer.Active {
+				continue
+			}
+
+			now := time.Now()
+			ntpNow := toNTPTime(now)
+
+			videoTs := uint32(atomic.LoadUint64(&s.lastVideoRTPTs))
+			audioTs := uint32(atomic.LoadUint64(&s.lastAudioRTPTs))
+			vidPkts := uint32(atomic.LoadUint64(&s.videoPktCount))
+			vidOctets := uint32(atomic.LoadUint64(&s.videOctetCount))
+			audPkts := uint32(atomic.LoadUint64(&s.audioPktCount))
+			audOctets := uint32(atomic.LoadUint64(&s.audioOctetCount))
+
+			if videoTs == 0 && audioTs == 0 {
+				continue
+			}
+
+			srCount++
+
+			// Send video SR + SDES
+			if peer.VideoSSRC != 0 {
+				err := peer.PC.WriteRTCP([]rtcp.Packet{
+					&rtcp.SenderReport{
+						SSRC:        peer.VideoSSRC,
+						NTPTime:     ntpNow,
+						RTPTime:     videoTs,
+						PacketCount: vidPkts,
+						OctetCount:  vidOctets,
+					},
+					&rtcp.SourceDescription{
+						Chunks: []rtcp.SourceDescriptionChunk{{
+							Source: peer.VideoSSRC,
+							Items: []rtcp.SourceDescriptionItem{{
+								Type: rtcp.SDESCNAME,
+								Text: cname,
+							}},
+						}},
+					},
+				})
+				if srCount <= 5 || srCount%30 == 0 {
+					log.Printf("[SR] Peer %s video SR #%d ssrc=%d rtpTs=%d err=%v", peer.ID, srCount, peer.VideoSSRC, videoTs, err)
+				}
+			} else if srCount <= 5 {
+				log.Printf("[SR] Peer %s video SSRC still 0 — skipping SR", peer.ID)
+			}
+
+			// Send audio SR + SDES with SAME NTP time and SAME CNAME
+			if peer.AudioSSRC != 0 {
+				err := peer.PC.WriteRTCP([]rtcp.Packet{
+					&rtcp.SenderReport{
+						SSRC:        peer.AudioSSRC,
+						NTPTime:     ntpNow,
+						RTPTime:     audioTs,
+						PacketCount: audPkts,
+						OctetCount:  audOctets,
+					},
+					&rtcp.SourceDescription{
+						Chunks: []rtcp.SourceDescriptionChunk{{
+							Source: peer.AudioSSRC,
+							Items: []rtcp.SourceDescriptionItem{{
+								Type: rtcp.SDESCNAME,
+								Text: cname,
+							}},
+						}},
+					},
+				})
+				if srCount <= 5 || srCount%30 == 0 {
+					log.Printf("[SR] Peer %s audio SR #%d ssrc=%d rtpTs=%d err=%v", peer.ID, srCount, peer.AudioSSRC, audioTs, err)
+				}
+			} else if srCount <= 5 {
+				log.Printf("[SR] Peer %s audio SSRC still 0 — skipping SR", peer.ID)
+			}
+		}
+	}
 }
 
 func (s *Sidecar) SetAnswer(id, sdp string) error {
@@ -371,6 +476,7 @@ func (s *Sidecar) ClosePeer(id string) {
 	s.peersLock.Lock()
 	if peer, exists := s.peers[id]; exists {
 		peer.Active = false
+		close(peer.stopSR)
 		peer.PC.Close()
 		delete(s.peers, id)
 	}
@@ -446,7 +552,6 @@ func (s *Sidecar) StartFFmpeg(source string) {
 		)
 	}
 
-	s.resetTimestamps()
 
 	log.Printf("[FFmpeg] Starting: source=%s video=:%d audio=:%d", source, s.videoPort, s.audioPort)
 
