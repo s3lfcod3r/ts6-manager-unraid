@@ -91,8 +91,23 @@ function normalizeFlowData(raw: any): FlowDefinition {
       const params: Record<string, string> = {};
       if (config.channel_name) params.channel_name = config.channel_name;
       if (config.cpid) params.cpid = config.cpid;
-      if (config.channel_flag_temporary) params.channel_flag_temporary = config.channel_flag_temporary;
-      if (config.channel_flag_semi_permanent) params.channel_flag_semi_permanent = config.channel_flag_semi_permanent;
+      const tmp = String(config.channel_flag_temporary ?? '');
+      const semi = String(config.channel_flag_semi_permanent ?? '');
+
+      // UI semantics:
+      // - "Temporary" => temporary channel
+      // - "Permanent" => semi-permanent channel
+      if (tmp === '1') {
+        params.channel_flag_temporary = '1';
+      } else {
+        // default + "Permanent" selection
+        params.channel_flag_semi_permanent = '1';
+      }
+
+      // If someone explicitly set semi-permanent, keep it (harmless redundancy)
+      if (semi === '1') {
+        params.channel_flag_semi_permanent = '1';
+      }
       if (config.channel_topic) params.channel_topic = config.channel_topic;
       data = { actionType: 'channelCreate', label, params: { ...params, ...config.params } };
     } else if (nodeType === 'action_channelEdit') {
@@ -606,7 +621,7 @@ export class BotEngine {
             data.clientId;
 
           if (invoker && !data.clid) {
-            
+
             (enrichedData as any).clid = String(invoker);
           }
 
