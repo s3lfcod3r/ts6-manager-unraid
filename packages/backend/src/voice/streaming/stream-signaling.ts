@@ -258,8 +258,8 @@ export class StreamSignaling extends EventEmitter {
     }));
   }
 
-  sendStreamStop(streamId: string): void {
-    this.client.sendCommand(buildCommand('stopstream', { id: streamId }));
+  sendStreamStop(streamId: string, reason: number = 1): void {
+    this.client.sendCommand(buildCommand('stopstream', { id: streamId, reason: String(reason) }));
   }
 
   sendRemoveClient(clid: number, streamId: string): void {

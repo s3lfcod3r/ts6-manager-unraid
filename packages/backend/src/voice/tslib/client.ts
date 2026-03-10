@@ -255,7 +255,6 @@ export class Ts3Client extends EventEmitter {
 
   sendCommand(cmd: string): void {
     const data = Buffer.from(cmd, "utf-8");
-
     if (data.length <= MAX_OUT_CONTENT) {
       this.sendOutgoing(data, PacketType.Command);
       return;

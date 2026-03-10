@@ -10,15 +10,17 @@ import { STREAM_PRESETS, DEFAULT_PRESET, type VideoViewerInfo, type VideoStreamS
 import { spawn } from 'child_process';
 
 /** Resolve a YouTube/yt-dlp-compatible URL to a direct stream URL */
-function resolveVideoUrl(url: string): Promise<string> {
+function resolveVideoUrl(url: string, maxHeight: number = 720): Promise<string> {
   // Only resolve YouTube and other yt-dlp-supported sites
   if (!url.includes('youtube.com/') && !url.includes('youtu.be/') && !url.includes('twitch.tv/')) {
     return Promise.resolve(url);
   }
 
   return new Promise((resolve, reject) => {
+    // Request best combined format (video+audio) up to the target height
+    const formatFilter = `best[height<=${maxHeight}][ext=mp4]/best[height<=${maxHeight}]/best[ext=mp4]/best`;
     const proc = spawn('yt-dlp', [
-      '-f', 'best[ext=mp4]/best',
+      '-f', formatFilter,
       '--no-playlist',
       '-g',  // print direct URL only
       url,
@@ -839,7 +841,7 @@ export class VoiceBot extends EventEmitter {
     this._videoStartedAt = Date.now();
 
     // Resolve YouTube/streaming URLs via yt-dlp, then start ffmpeg
-    const resolvedSource = await resolveVideoUrl(source);
+    const resolvedSource = await resolveVideoUrl(source, presetConfig.height);
     await this.sidecarHttp.setSource(resolvedSource);
 
     console.log(`[VoiceBot ${this.config.id}] Video stream started: ${stream.id}, source: ${source}`);
@@ -851,10 +853,15 @@ export class VoiceBot extends EventEmitter {
   async stopVideoStream(): Promise<void> {
     if (!this._videoStreaming) return;
 
-    // Stop ffmpeg
-    try { await this.sidecarHttp?.stopSource(); } catch { /* ignore */ }
+    // Remove all viewers from TS6 stream first
+    if (this.signaling && this._activeStreamId) {
+      for (const [clid] of this._viewers) {
+        this.signaling.sendRemoveClient(clid, this._activeStreamId);
+      }
+    }
 
-    // Close all peers
+    // Stop ffmpeg and close WebRTC peers
+    try { await this.sidecarHttp?.stopSource(); } catch { /* ignore */ }
     for (const [clid] of this._viewers) {
       try { await this.sidecarHttp?.closePeer(String(clid)); } catch { /* ignore */ }
     }
@@ -862,8 +869,12 @@ export class VoiceBot extends EventEmitter {
 
     // Stop TS6 stream
     if (this.signaling && this._activeStreamId) {
+      console.log(`[VoiceBot ${this.config.id}] Sending stopstream: ${this._activeStreamId}`);
       this.signaling.sendStreamStop(this._activeStreamId);
     }
+
+    // Wait for the stopstream command to be sent and ACKed over UDP
+    await new Promise((r) => setTimeout(r, 1000));
 
     // Stop sidecar process (only in local mode)
     if (this.sidecarProc) {
@@ -888,7 +899,8 @@ export class VoiceBot extends EventEmitter {
       throw new Error('No active video stream');
     }
     this._videoSource = source;
-    const resolvedSource = await resolveVideoUrl(source);
+    const currentPreset = STREAM_PRESETS[this._videoPreset] || STREAM_PRESETS[DEFAULT_PRESET];
+    const resolvedSource = await resolveVideoUrl(source, currentPreset.height);
     await this.sidecarHttp.setSource(resolvedSource);
     console.log(`[VoiceBot ${this.config.id}] Video source changed: ${source}`);
     this.emit('videoSourceChanged', source);
@@ -996,7 +1008,6 @@ export class VoiceBot extends EventEmitter {
       }
 
       const result = await this.sidecarHttp.createPeer(String(viewerClid));
-      console.log(`[VoiceBot ${this.config.id}] Peer created for clid=${viewerClid}, sdp length=${result.sdp?.length ?? 'undefined'}, starts with: ${result.sdp?.substring(0, 30)}`);
 
       const viewer: VideoViewerInfo = {
         clid: viewerClid,
@@ -1006,8 +1017,6 @@ export class VoiceBot extends EventEmitter {
       this._viewers.set(viewerClid, viewer);
 
       this.signaling.sendJoinResponse(viewerClid, streamId, true, result.sdp);
-      console.log(`[VoiceBot ${this.config.id}] Sent respondjoinstreamrequest: clid=${viewerClid}, streamId=${streamId}, decision=1`);
-
       console.log(`[VoiceBot ${this.config.id}] Viewer accepted: clid=${viewerClid} (${this._viewers.size} total)`);
       this.emit('videoViewerJoined', viewer);
     } catch (err: any) {
