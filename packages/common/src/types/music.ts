@@ -131,3 +131,41 @@ export interface YouTubeUrlInfo {
   type: 'video' | 'playlist';
   items: YouTubeSearchResult[];
 }
+
+// === Video Streaming Types ===
+
+export type VideoStreamPresetKey = '480p' | '720p' | '1080p';
+
+export interface VideoStreamPreset {
+  label: string;
+  width: number;
+  height: number;
+  bitrate: string;
+  framerate: number;
+}
+
+export interface VideoStreamStatus {
+  streaming: boolean;
+  streamId: string | null;
+  source: string | null;
+  preset: string;
+  startedAt: number | null;
+  viewerCount: number;
+  viewers: VideoViewerInfo[];
+  sidecar: { videoPort: number; audioPort: number } | null;
+}
+
+export interface VideoViewerInfo {
+  clid: number;
+  joinedAt: number;
+  iceState: string;
+}
+
+export interface StartVideoStreamRequest {
+  source: string;
+  preset?: VideoStreamPresetKey;
+}
+
+export interface SetVideoSourceRequest {
+  source: string;
+}

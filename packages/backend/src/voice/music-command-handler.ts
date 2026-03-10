@@ -10,6 +10,7 @@ const CMD_PREFIX = '!';
 const MUSIC_COMMANDS = new Set([
   'radio', 'play', 'stop', 'pause', 'skip', 'next', 'prev',
   'vol', 'volume', 'np', 'nowplaying', 'queue', 'add',
+  'stream', 'stopstream', 'viewers',
 ]);
 
 /**
@@ -97,6 +98,15 @@ export class MusicCommandHandler {
         case 'queue':
         case 'add':
           await this.handleQueue(bot, userClid, args);
+          break;
+        case 'stream':
+          await this.handleStream(bot, userClid, args);
+          break;
+        case 'stopstream':
+          await this.handleStopStream(bot, userClid);
+          break;
+        case 'viewers':
+          this.handleViewers(bot, userClid);
           break;
       }
     } catch (err: any) {
@@ -346,6 +356,69 @@ export class MusicCommandHandler {
 
     const artist = np.artist ? `${np.artist} - ` : '';
     this.reply(bot, userClid, `Now playing: ${artist}${np.title}`);
+  }
+
+  // ─── Video Streaming Commands ─────────────────────────────
+
+  private async handleStream(bot: VoiceBot, userClid: number, args: string): Promise<void> {
+    if (!args) {
+      this.reply(bot, userClid, 'Usage: !stream <url> [preset]  — Presets: 480p, 720p, 1080p');
+      return;
+    }
+
+    const parts = args.split(/\s+/);
+    const url = parts[0];
+    const preset = parts[1] || undefined;
+
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      this.reply(bot, userClid, 'Please provide a valid URL.');
+      return;
+    }
+
+    if (bot.videoStreaming) {
+      // Change source if already streaming
+      try {
+        await bot.setVideoSource(url);
+        this.reply(bot, userClid, `Stream source changed to: ${url}`);
+      } catch (err: any) {
+        this.reply(bot, userClid, `Error: ${err.message}`);
+      }
+      return;
+    }
+
+    this.reply(bot, userClid, 'Starting video stream...');
+    try {
+      await bot.startVideoStream(url, preset);
+      this.reply(bot, userClid, `Video stream started: ${url}`);
+    } catch (err: any) {
+      this.reply(bot, userClid, `Failed to start stream: ${err.message}`);
+    }
+  }
+
+  private async handleStopStream(bot: VoiceBot, userClid: number): Promise<void> {
+    if (!bot.videoStreaming) {
+      this.reply(bot, userClid, 'No active video stream.');
+      return;
+    }
+    await bot.stopVideoStream();
+    this.reply(bot, userClid, 'Video stream stopped.');
+  }
+
+  private handleViewers(bot: VoiceBot, userClid: number): void {
+    const status = bot.videoStreamStatus;
+    if (!status.streaming) {
+      this.reply(bot, userClid, 'No active video stream.');
+      return;
+    }
+    if (status.viewers.length === 0) {
+      this.reply(bot, userClid, 'No viewers connected.');
+      return;
+    }
+    const lines = status.viewers.map((v) => {
+      const duration = Math.floor((Date.now() - v.joinedAt) / 1000);
+      return `  clid=${v.clid} (${duration}s)`;
+    });
+    this.reply(bot, userClid, `Viewers (${status.viewerCount}):\n${lines.join('\n')}`);
   }
 
   private saveMusicRequest(bot: VoiceBot, item: QueueItem): void {

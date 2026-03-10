@@ -409,6 +409,7 @@ musicBotRoutes.get('/:id/state', async (req: Request, res: Response, next) => {
       shuffle: bot.queue.shuffle,
       repeat: bot.queue.repeat,
       isStreaming: bot.isStreaming,
+      videoStream: bot.videoStreamStatus,
     });
   } catch (err) { next(err); }
 });
@@ -535,5 +536,102 @@ musicBotRoutes.post('/:id/queue/repeat', async (req: Request, res: Response, nex
     if (!['off', 'track', 'queue'].includes(mode)) throw new AppError(400, 'Invalid repeat mode');
     bot.queue.setRepeat(mode);
     res.json({ success: true, repeat: bot.queue.repeat });
+  } catch (err) { next(err); }
+});
+
+// === Video Streaming ===
+
+// POST /:id/stream/start — Start video stream
+musicBotRoutes.post('/:id/stream/start', async (req: Request, res: Response, next) => {
+  try {
+    const manager: VoiceBotManager = req.app.locals.voiceBotManager;
+    const bot = manager.getBot(parseInt(req.params.id as string));
+    if (!bot) throw new AppError(404, 'Music bot not found');
+    const { source, preset } = req.body;
+    if (!source) throw new AppError(400, 'source is required');
+    await bot.startVideoStream(source, preset);
+    res.json({ success: true, status: bot.videoStreamStatus });
+  } catch (err) { next(err); }
+});
+
+// POST /:id/stream/stop — Stop video stream
+musicBotRoutes.post('/:id/stream/stop', async (req: Request, res: Response, next) => {
+  try {
+    const manager: VoiceBotManager = req.app.locals.voiceBotManager;
+    const bot = manager.getBot(parseInt(req.params.id as string));
+    if (!bot) throw new AppError(404, 'Music bot not found');
+    await bot.stopVideoStream();
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// POST /:id/stream/source — Change video source
+musicBotRoutes.post('/:id/stream/source', async (req: Request, res: Response, next) => {
+  try {
+    const manager: VoiceBotManager = req.app.locals.voiceBotManager;
+    const bot = manager.getBot(parseInt(req.params.id as string));
+    if (!bot) throw new AppError(404, 'Music bot not found');
+    const { source } = req.body;
+    if (!source) throw new AppError(400, 'source is required');
+    await bot.setVideoSource(source);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// GET /:id/stream/status — Get video stream status
+musicBotRoutes.get('/:id/stream/status', async (req: Request, res: Response, next) => {
+  try {
+    const manager: VoiceBotManager = req.app.locals.voiceBotManager;
+    const bot = manager.getBot(parseInt(req.params.id as string));
+    if (!bot) throw new AppError(404, 'Music bot not found');
+    res.json(bot.videoStreamStatus);
+  } catch (err) { next(err); }
+});
+
+// DELETE /:id/stream/viewer/:clid — Kick a viewer
+musicBotRoutes.delete('/:id/stream/viewer/:clid', async (req: Request, res: Response, next) => {
+  try {
+    const manager: VoiceBotManager = req.app.locals.voiceBotManager;
+    const bot = manager.getBot(parseInt(req.params.id as string));
+    if (!bot) throw new AppError(404, 'Music bot not found');
+    await bot.kickVideoViewer(parseInt(req.params.clid as string));
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// POST /:id/stream/webrtc/offer — Get WebRTC offer for preview player
+musicBotRoutes.post('/:id/stream/webrtc/offer', async (req: Request, res: Response, next) => {
+  try {
+    const manager: VoiceBotManager = req.app.locals.voiceBotManager;
+    const bot = manager.getBot(parseInt(req.params.id as string));
+    if (!bot) throw new AppError(404, 'Music bot not found');
+    const offer = await bot.getWebRtcOffer();
+    if (!offer) throw new AppError(400, 'No active video stream');
+    res.json(offer);
+  } catch (err) { next(err); }
+});
+
+// POST /:id/stream/webrtc/answer — Set WebRTC answer from preview player
+musicBotRoutes.post('/:id/stream/webrtc/answer', async (req: Request, res: Response, next) => {
+  try {
+    const manager: VoiceBotManager = req.app.locals.voiceBotManager;
+    const bot = manager.getBot(parseInt(req.params.id as string));
+    if (!bot) throw new AppError(404, 'Music bot not found');
+    const { sdp } = req.body;
+    if (!sdp) throw new AppError(400, 'sdp is required');
+    await bot.setWebRtcAnswer(sdp);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// POST /:id/stream/webrtc/ice — Add ICE candidate from preview player
+musicBotRoutes.post('/:id/stream/webrtc/ice', async (req: Request, res: Response, next) => {
+  try {
+    const manager: VoiceBotManager = req.app.locals.voiceBotManager;
+    const bot = manager.getBot(parseInt(req.params.id as string));
+    if (!bot) throw new AppError(404, 'Music bot not found');
+    const { candidate, sdpMid, sdpMLineIndex } = req.body;
+    await bot.addWebRtcIceCandidate(candidate, sdpMid, sdpMLineIndex ?? 0);
+    res.json({ success: true });
   } catch (err) { next(err); }
 });

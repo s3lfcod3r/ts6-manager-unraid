@@ -3,6 +3,50 @@ import { Ts3Client, type Ts3ClientOptions, generateIdentity, type IdentityData, 
 import { AudioPipeline, FRAME_MS, BYTES_PER_FRAME } from './audio/pipeline.js';
 import { PlayQueue, type QueueItem } from './playlist/queue.js';
 import { fetchIcyMetadata } from './audio/icy-metadata.js';
+import { StreamSignaling, type ActiveStream, type SignalingMessage } from './streaming/stream-signaling.js';
+import { SidecarClient } from './streaming/sidecar-client.js';
+import { SidecarProcess, type SidecarConfig } from './streaming/sidecar-process.js';
+import { STREAM_PRESETS, DEFAULT_PRESET, type VideoViewerInfo, type VideoStreamStatus } from './streaming/types.js';
+import { spawn } from 'child_process';
+
+/** Resolve a YouTube/yt-dlp-compatible URL to a direct stream URL */
+function resolveVideoUrl(url: string): Promise<string> {
+  // Only resolve YouTube and other yt-dlp-supported sites
+  if (!url.includes('youtube.com/') && !url.includes('youtu.be/') && !url.includes('twitch.tv/')) {
+    return Promise.resolve(url);
+  }
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn('yt-dlp', [
+      '-f', 'best[ext=mp4]/best',
+      '--no-playlist',
+      '-g',  // print direct URL only
+      url,
+    ], { shell: false });
+
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+    proc.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        return reject(new Error(`yt-dlp failed (code ${code}): ${stderr.slice(0, 200)}`));
+      }
+      // yt-dlp -g returns the direct URL(s), take the first one
+      const directUrl = stdout.trim().split('\n')[0];
+      if (!directUrl) {
+        return reject(new Error('yt-dlp returned no URL'));
+      }
+      console.log(`[VideoResolve] Resolved: ${url.substring(0, 60)}... → direct URL`);
+      resolve(directUrl);
+    });
+
+    proc.on('error', (err) => {
+      reject(new Error(`yt-dlp not found: ${err.message}`));
+    });
+  });
+}
 
 export type VoiceBotStatus = 'stopped' | 'starting' | 'connected' | 'playing' | 'paused' | 'error';
 
@@ -23,6 +67,9 @@ export interface VoiceBotConfig {
   channelPassword?: string;
   volume: number; // 0-100
   identity?: IdentityData;
+  sidecarBinaryPath?: string;
+  sidecarPort?: number;
+  streamPreset?: string;
 }
 
 export class VoiceBot extends EventEmitter {
@@ -67,6 +114,17 @@ export class VoiceBot extends EventEmitter {
 
   // Reconnect: distinguishes manual stop from unexpected disconnect
   private _manuallyStopped: boolean = false;
+
+  // Video streaming state
+  private signaling: StreamSignaling | null = null;
+  private sidecarProc: SidecarProcess | null = null;
+  private sidecarHttp: SidecarClient | null = null;
+  private _videoStreaming: boolean = false;
+  private _activeStreamId: string | null = null;
+  private _videoSource: string | null = null;
+  private _videoPreset: string = DEFAULT_PRESET;
+  private _videoStartedAt: number | null = null;
+  private _viewers: Map<number, VideoViewerInfo> = new Map();
 
   constructor(config: VoiceBotConfig) {
     super();
@@ -272,6 +330,10 @@ export class VoiceBot extends EventEmitter {
     this.resetNickname();
     this.stopPlayback();
     this._nowPlaying = null;
+    // Stop video stream if active
+    if (this._videoStreaming) {
+      await this.stopVideoStream();
+    }
     this.client.disconnect();
   }
 
@@ -665,5 +727,292 @@ export class VoiceBot extends EventEmitter {
     this._isStreaming = false;
     this.streamChunks = [];
     this.streamChunksSize = 0;
+  }
+
+  // ─── Video Streaming ────────────────────────────────────────
+
+  get videoStreaming(): boolean {
+    return this._videoStreaming;
+  }
+
+  get videoStreamStatus(): VideoStreamStatus {
+    return {
+      streaming: this._videoStreaming,
+      streamId: this._activeStreamId,
+      source: this._videoSource,
+      preset: this._videoPreset,
+      startedAt: this._videoStartedAt,
+      viewerCount: this._viewers.size,
+      viewers: Array.from(this._viewers.values()),
+      sidecar: null,
+    };
+  }
+
+  /** Start video streaming to TS6 via WebRTC */
+  async startVideoStream(source: string, preset?: string): Promise<void> {
+    if (this._status !== 'connected' && this._status !== 'playing' && this._status !== 'paused') {
+      throw new Error('Bot is not connected');
+    }
+    if (this._videoStreaming) {
+      throw new Error('Video stream already active');
+    }
+
+    const sidecarBinary = this.config.sidecarBinaryPath || process.env.SIDECAR_BINARY_PATH || 'sidecar';
+    const sidecarPort = this.config.sidecarPort || 9800;
+    this._videoPreset = preset || this.config.streamPreset || DEFAULT_PRESET;
+    const presetConfig = STREAM_PRESETS[this._videoPreset] || STREAM_PRESETS[DEFAULT_PRESET];
+
+    // Check if sidecar URL is set (Docker mode — sidecar runs as separate container)
+    const sidecarUrl = process.env.SIDECAR_URL;
+
+    if (sidecarUrl) {
+      // Docker mode: sidecar is an external service, don't spawn it
+      const url = new URL(sidecarUrl);
+      this.sidecarHttp = new SidecarClient(parseInt(url.port) || 9800);
+    } else {
+      // Local mode: spawn sidecar binary
+      const sidecarConfig: SidecarConfig = {
+        binaryPath: sidecarBinary,
+        port: sidecarPort,
+        videoBitrate: presetConfig.bitrate,
+        videoResolution: { width: presetConfig.width, height: presetConfig.height },
+        videoFramerate: presetConfig.framerate,
+      };
+
+      this.sidecarProc = new SidecarProcess(sidecarConfig);
+      this.sidecarProc.on('exited', (code: number | null) => {
+        console.log(`[VoiceBot ${this.config.id}] Sidecar exited (code=${code})`);
+        if (this._videoStreaming) {
+          this._videoStreaming = false;
+          this._activeStreamId = null;
+          this._viewers.clear();
+          this.emit('videoStreamStopped');
+          this.emit('statusChange', this._status);
+        }
+      });
+      try {
+        this.sidecarProc.start();
+      } catch (err: any) {
+        this.sidecarProc = null;
+        throw new Error(`Failed to start sidecar: ${err.message}`);
+      }
+      this.sidecarHttp = new SidecarClient(sidecarPort);
+    }
+
+    // Wait for sidecar to be healthy
+    await this.sidecarHttp.waitHealthy();
+    console.log(`[VoiceBot ${this.config.id}] Sidecar ready`);
+
+    // Setup stream signaling on the TS3 client
+    this.signaling = new StreamSignaling(this.client);
+    this.setupSignalingListeners();
+    this.signaling.registerStreamNotifications();
+
+    // Wait for server to confirm stream
+    const streamPromise = new Promise<ActiveStream>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('setupstream timeout')), 10000);
+      const handler = (stream: ActiveStream) => {
+        if (stream.clid === this.client.getClientId()) {
+          clearTimeout(timeout);
+          this.signaling!.removeListener('streamStarted', handler);
+          resolve(stream);
+        }
+      };
+      this.signaling!.on('streamStarted', handler);
+    });
+
+    // Send setupstream command
+    this.signaling.sendSetupStream({
+      name: `${this.config.nickname} Stream`,
+      type: 3,
+      bitrate: 4608,
+      accessibility: 1,
+      mode: 1,
+      viewerLimit: 0,
+      audio: true,
+    });
+
+    const stream = await streamPromise;
+    this._activeStreamId = stream.id;
+    this._videoStreaming = true;
+    this._videoSource = source;
+    this._videoStartedAt = Date.now();
+
+    // Resolve YouTube/streaming URLs via yt-dlp, then start ffmpeg
+    const resolvedSource = await resolveVideoUrl(source);
+    await this.sidecarHttp.setSource(resolvedSource);
+
+    console.log(`[VoiceBot ${this.config.id}] Video stream started: ${stream.id}, source: ${source}`);
+    this.emit('videoStreamStarted', { streamId: stream.id, source, preset: this._videoPreset });
+    this.emit('statusChange', this._status);
+  }
+
+  /** Stop video streaming */
+  async stopVideoStream(): Promise<void> {
+    if (!this._videoStreaming) return;
+
+    // Stop ffmpeg
+    try { await this.sidecarHttp?.stopSource(); } catch { /* ignore */ }
+
+    // Close all peers
+    for (const [clid] of this._viewers) {
+      try { await this.sidecarHttp?.closePeer(String(clid)); } catch { /* ignore */ }
+    }
+    this._viewers.clear();
+
+    // Stop TS6 stream
+    if (this.signaling && this._activeStreamId) {
+      this.signaling.sendStreamStop(this._activeStreamId);
+    }
+
+    // Stop sidecar process (only in local mode)
+    if (this.sidecarProc) {
+      await this.sidecarProc.stop();
+      this.sidecarProc = null;
+    }
+
+    this._activeStreamId = null;
+    this._videoSource = null;
+    this._videoStreaming = false;
+    this._videoStartedAt = null;
+    this.signaling = null;
+
+    console.log(`[VoiceBot ${this.config.id}] Video stream stopped`);
+    this.emit('videoStreamStopped');
+    this.emit('statusChange', this._status);
+  }
+
+  /** Change video source while streaming */
+  async setVideoSource(source: string): Promise<void> {
+    if (!this._videoStreaming || !this.sidecarHttp) {
+      throw new Error('No active video stream');
+    }
+    this._videoSource = source;
+    const resolvedSource = await resolveVideoUrl(source);
+    await this.sidecarHttp.setSource(resolvedSource);
+    console.log(`[VoiceBot ${this.config.id}] Video source changed: ${source}`);
+    this.emit('videoSourceChanged', source);
+  }
+
+  /** Kick a viewer from the video stream */
+  async kickVideoViewer(clid: number): Promise<void> {
+    if (!this._videoStreaming || !this.signaling || !this._activeStreamId) {
+      throw new Error('No active video stream');
+    }
+    try { await this.sidecarHttp?.closePeer(String(clid)); } catch { /* ignore */ }
+    this.signaling.sendRemoveClient(clid, this._activeStreamId);
+    this._viewers.delete(clid);
+    this.emit('videoViewerLeft', clid);
+  }
+
+  /** Get WebRTC offer for WebUI preview player */
+  async getWebRtcOffer(): Promise<{ sdp: string } | null> {
+    if (!this._videoStreaming || !this.sidecarHttp) return null;
+    return this.sidecarHttp.createPeer('webui-preview');
+  }
+
+  /** Set WebRTC answer from WebUI preview player */
+  async setWebRtcAnswer(sdp: string): Promise<void> {
+    if (!this.sidecarHttp) throw new Error('No sidecar');
+    await this.sidecarHttp.setAnswer('webui-preview', sdp);
+  }
+
+  /** Add ICE candidate from WebUI preview player */
+  async addWebRtcIceCandidate(candidate: string, sdpMid: string, sdpMLineIndex: number): Promise<void> {
+    if (!this.sidecarHttp) throw new Error('No sidecar');
+    await this.sidecarHttp.addIceCandidate('webui-preview', candidate, sdpMid, sdpMLineIndex);
+  }
+
+  private setupSignalingListeners(): void {
+    if (!this.signaling) return;
+
+    this.signaling.on('signalingMessage', (msg: SignalingMessage) => {
+      this.handleSignalingMessage(msg);
+    });
+
+    this.signaling.on('joinStreamRequest', (params: Record<string, string>) => {
+      const viewerClid = parseInt(params.clid) || 0;
+      const streamId = params.id || this._activeStreamId;
+      if (!streamId || !viewerClid) return;
+      console.log(`[VoiceBot ${this.config.id}] Viewer join request: clid=${viewerClid}`);
+      this.handleViewerJoin(viewerClid, streamId);
+    });
+
+    this.signaling.on('streamClientLeft', (params: Record<string, string>) => {
+      const clid = parseInt(params.clid) || 0;
+      if (this._viewers.has(clid)) {
+        console.log(`[VoiceBot ${this.config.id}] Viewer left: clid=${clid}`);
+        this.sidecarHttp?.closePeer(String(clid)).catch(() => {});
+        this._viewers.delete(clid);
+        this.emit('videoViewerLeft', clid);
+      }
+    });
+  }
+
+  private async handleSignalingMessage(msg: SignalingMessage): Promise<void> {
+    if (!this.sidecarHttp) return;
+
+    switch (msg.type) {
+      case 'answer':
+        if (msg.sdp && msg.clid) {
+          try {
+            await this.sidecarHttp.setAnswer(String(msg.clid), msg.sdp);
+          } catch (err: any) {
+            console.error(`[VoiceBot ${this.config.id}] setAnswer error (clid=${msg.clid}): ${err.message}`);
+          }
+        }
+        break;
+      case 'ice_candidate':
+        if (msg.candidate && msg.clid) {
+          try {
+            await this.sidecarHttp.addIceCandidate(
+              String(msg.clid),
+              msg.candidate,
+              msg.sdpMid || '0',
+              msg.sdpMlineIndex ?? 0
+            );
+          } catch (err: any) {
+            console.error(`[VoiceBot ${this.config.id}] addIceCandidate error (clid=${msg.clid}): ${err.message}`);
+          }
+        }
+        break;
+      case 'reconnect':
+        if (msg.clid && this._activeStreamId) {
+          console.log(`[VoiceBot ${this.config.id}] Reconnect from clid=${msg.clid}`);
+          try { await this.sidecarHttp.closePeer(String(msg.clid)); } catch { /* ignore */ }
+          this._viewers.delete(msg.clid);
+          await this.handleViewerJoin(msg.clid, this._activeStreamId);
+        }
+        break;
+    }
+  }
+
+  private async handleViewerJoin(viewerClid: number, streamId: string): Promise<void> {
+    if (!this.sidecarHttp || !this.signaling) return;
+
+    try {
+      if (this._viewers.has(viewerClid)) {
+        try { await this.sidecarHttp.closePeer(String(viewerClid)); } catch { /* ignore */ }
+      }
+
+      const result = await this.sidecarHttp.createPeer(String(viewerClid));
+      console.log(`[VoiceBot ${this.config.id}] Peer created for clid=${viewerClid}, sdp length=${result.sdp?.length ?? 'undefined'}, starts with: ${result.sdp?.substring(0, 30)}`);
+
+      const viewer: VideoViewerInfo = {
+        clid: viewerClid,
+        joinedAt: Date.now(),
+        iceState: 'new',
+      };
+      this._viewers.set(viewerClid, viewer);
+
+      this.signaling.sendJoinResponse(viewerClid, streamId, true, result.sdp);
+      console.log(`[VoiceBot ${this.config.id}] Sent respondjoinstreamrequest: clid=${viewerClid}, streamId=${streamId}, decision=1`);
+
+      console.log(`[VoiceBot ${this.config.id}] Viewer accepted: clid=${viewerClid} (${this._viewers.size} total)`);
+      this.emit('videoViewerJoined', viewer);
+    } catch (err: any) {
+      console.error(`[VoiceBot ${this.config.id}] handleViewerJoin error (clid=${viewerClid}): ${err.message}`);
+      this._viewers.delete(viewerClid);
+    }
   }
 }

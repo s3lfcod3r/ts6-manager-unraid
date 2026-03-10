@@ -254,7 +254,29 @@ export class Ts3Client extends EventEmitter {
   }
 
   sendCommand(cmd: string): void {
-    this.sendOutgoing(Buffer.from(cmd, "utf-8"), PacketType.Command);
+    const data = Buffer.from(cmd, "utf-8");
+
+    if (data.length <= MAX_OUT_CONTENT) {
+      this.sendOutgoing(data, PacketType.Command);
+      return;
+    }
+
+    // Fragment large commands
+    const chunks: Buffer[] = [];
+    for (let offset = 0; offset < data.length; offset += MAX_OUT_CONTENT) {
+      chunks.push(data.subarray(offset, Math.min(offset + MAX_OUT_CONTENT, data.length)));
+    }
+
+    const cmdName = cmd.split(' ')[0];
+    console.log(`[TS3Client] Fragmenting ${cmdName}: ${data.length} bytes → ${chunks.length} fragments`);
+
+    for (let i = 0; i < chunks.length; i++) {
+      const isFirst = i === 0;
+      const isLast = i === chunks.length - 1;
+      // TS3 fragmentation: FLAG_FRAGMENTED on first and last fragment
+      const extraFlags = (isFirst || isLast) ? FLAG_FRAGMENTED : 0;
+      this.sendOutgoing(chunks[i], PacketType.Command, extraFlags);
+    }
   }
 
   // ====== Packet Building & Sending ======
