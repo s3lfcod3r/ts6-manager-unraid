@@ -54,12 +54,22 @@ Get started quickly with pre-built flow templates. Covers common use cases like 
 - YouTube playback via yt-dlp (search, download, queue)
 - Music library management (upload, organize, playlists)
 - Volume control, pause, skip, previous, shuffle, repeat
+- Stereo audio support with stable 20ms pacing
 - Auto-reconnect with exponential backoff on disconnect
 - In-channel text commands for hands-free control
+- Music request history tracking
+
+### Video Streaming
+- Live video streaming from YouTube, Twitch, or direct URLs to TeamSpeak channels
+- WebRTC-based with Go sidecar relay (Pion) for low-latency delivery
+- Quality presets (480p, 720p, 1080p)
+- In-browser preview with WebRTC playback
+- A/V synchronization via RTCP Sender Reports
+- Runs as a Docker sidecar container alongside the backend
 
 ### Bot Flow Engine
 - Visual flow editor with drag-and-drop node canvas
-- Triggers: TS3 events, cron schedules, webhooks (with mandatory secrets), chat commands
+- Triggers: TS3 events, cron schedules, webhooks (with mandatory secrets), chat commands (global or channel-specific)
 - Actions: kick, ban, move, message, poke, channel create/edit/delete, HTTP requests, WebQuery commands
 - Conditions, variables, delays, loops, logging
 - Animated channel names (rotating text on a timer)
@@ -85,6 +95,11 @@ Get started quickly with pre-built flow templates. Covers common use cases like 
 - Authenticated WebSocket connections
 - Password complexity requirements
 
+### Settings & Administration
+- yt-dlp cookie file management for accessing age-restricted or member-only YouTube content
+- Upload cookies via file or paste directly in the UI
+- Admin-only settings panel
+
 ## Architecture
 
 ```
@@ -98,17 +113,24 @@ Get started quickly with pre-built flow templates. Covers common use cases like 
                      │   SQLite     │
                      │   (Prisma)   │
                      └──────────────┘
+                            │
+                     ┌──────┴───────┐
+                     │   Sidecar    │
+                     │  Go/Pion     │
+                     │  WebRTC :9800│
+                     └──────────────┘
 
 Public:  /widget/:token  ──▶  SVG / PNG / JSON (no auth)
 ```
 
-**Three packages** in a pnpm monorepo:
+**Four packages** in a pnpm monorepo:
 
 | Package | Description |
 |---------|-------------|
 | `@ts6/common` | Shared types, constants, utilities |
 | `@ts6/backend` | Express API, WebQuery client, bot engine, voice bots, widgets |
 | `@ts6/frontend` | React SPA with Vite, TailwindCSS, shadcn/ui |
+| `sidecar` | Go WebRTC media relay (Pion) for video streaming |
 
 The backend proxies all TeamSpeak API calls. The frontend never has direct access to API keys or server credentials.
 
@@ -119,6 +141,8 @@ The backend proxies all TeamSpeak API calls. The frontend never has direct acces
 **Backend:** Node.js, Express, Prisma (SQLite), JWT authentication, WebQuery HTTP client, SSH event listener
 
 **Voice/Audio:** Custom TS3 voice protocol client (UDP), Opus encoding, FFmpeg, yt-dlp
+
+**Video Streaming:** Go sidecar with Pion WebRTC v4, RTCP Sender Reports for A/V sync
 
 ## Quick Start (Docker)
 
@@ -214,6 +238,8 @@ The Docker images handle migrations automatically on startup.
 | `JWT_REFRESH_EXPIRY` | `7d` | Refresh token lifetime |
 | `FRONTEND_URL` | `http://localhost:3000` | CORS origin |
 | `MUSIC_DIR` | `/data/music` | Directory for downloaded music files |
+| `SIDECAR_URL` | — | Optional. Full URL of the WebRTC sidecar service (e.g. `http://ts6-sidecar:9800`). Set in Docker when sidecar runs as a separate container. |
+| `YT_COOKIE_FILE` | — | Optional. Path to a Netscape-format cookies.txt file for yt-dlp. Can also be managed via **Settings → YouTube** in the UI. |
 
 ## Music Bot Text Commands
 
