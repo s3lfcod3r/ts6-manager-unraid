@@ -82,7 +82,8 @@ export type ActionNodeData =
   | PokeGroupActionData
   | RankCheckActionData
   | TempChannelCleanupActionData
-  | AnimatedChannelActionData;
+  | AnimatedChannelActionData
+  | GenerateCodeActionData;
 
 export interface KickActionData {
   actionType: 'kick';

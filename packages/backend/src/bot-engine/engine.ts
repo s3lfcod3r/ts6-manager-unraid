@@ -95,12 +95,10 @@ function normalizeFlowData(raw: any): FlowDefinition {
       const semi = String(config.channel_flag_semi_permanent ?? '');
       if (tmp === '1') {
         params.channel_flag_temporary = '1';
-      } else {
+      } else if (semi === '1') {
         params.channel_flag_semi_permanent = '1';
       }
-      if (semi === '1') {
-        params.channel_flag_semi_permanent = '1';
-      }
+      // If neither flag is '1', channel will be permanent (TS3 default)
       if (config.channel_topic) params.channel_topic = config.channel_topic;
       if (config.channel_password) params.channel_password = config.channel_password;
       data = { actionType: 'channelCreate', label, params: { ...params, ...config.params } };
