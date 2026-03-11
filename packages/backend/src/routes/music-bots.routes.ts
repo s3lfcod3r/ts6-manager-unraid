@@ -406,7 +406,7 @@ musicBotRoutes.get('/:id/state', async (req: Request, res: Response, next) => {
       duration: progress?.duration ?? 0,
       volume: bot.currentConfig.volume,
       queue: bot.queue.getAll(),
-      currentIndex: -1, // PlayQueue doesn't expose this directly
+      currentIndex: bot.queue.index,
       shuffle: bot.queue.shuffle,
       repeat: bot.queue.repeat,
       isStreaming: bot.isStreaming,
@@ -537,6 +537,41 @@ musicBotRoutes.post('/:id/queue/repeat', async (req: Request, res: Response, nex
     if (!['off', 'track', 'queue'].includes(mode)) throw new AppError(400, 'Invalid repeat mode');
     bot.queue.setRepeat(mode);
     res.json({ success: true, repeat: bot.queue.repeat });
+  } catch (err) { next(err); }
+});
+
+// POST /:id/queue/:index/play — Play track at queue index
+musicBotRoutes.post('/:id/queue/:index/play', async (req: Request, res: Response, next) => {
+  try {
+    const manager: VoiceBotManager = req.app.locals.voiceBotManager;
+    const bot = manager.getBot(parseInt(req.params.id as string));
+    if (!bot) throw new AppError(404, 'Music bot not found');
+
+    const index = parseInt(req.params.index as string);
+    const item = bot.queue.playAt(index);
+    if (!item) throw new AppError(400, 'Invalid queue index');
+
+    if (item.streamUrl) {
+      await bot.playStream(item);
+    } else {
+      await bot.play(item);
+    }
+    res.json({ success: true, nowPlaying: { title: item.title, artist: item.artist } });
+  } catch (err) { next(err); }
+});
+
+// PUT /:id/queue/move — Move queue item from one position to another
+musicBotRoutes.put('/:id/queue/move', async (req: Request, res: Response, next) => {
+  try {
+    const manager: VoiceBotManager = req.app.locals.voiceBotManager;
+    const bot = manager.getBot(parseInt(req.params.id as string));
+    if (!bot) throw new AppError(404, 'Music bot not found');
+
+    const { from, to } = req.body;
+    if (typeof from !== 'number' || typeof to !== 'number') throw new AppError(400, 'from and to are required');
+    const moved = bot.queue.move(from, to);
+    if (!moved) throw new AppError(400, 'Invalid indices');
+    res.json({ success: true });
   } catch (err) { next(err); }
 });
 

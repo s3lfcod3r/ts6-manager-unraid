@@ -203,6 +203,24 @@ export function useSetRepeat() {
   });
 }
 
+export function usePlayFromQueue() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ botId, index }: { botId: number; index: number }) =>
+      musicBotsApi.playFromQueue(botId, index),
+    onSuccess: (_, { botId }) => qc.invalidateQueries({ queryKey: ['music-bot-state', botId] }),
+  });
+}
+
+export function useMoveQueueItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ botId, from, to }: { botId: number; from: number; to: number }) =>
+      musicBotsApi.moveQueueItem(botId, from, to),
+    onSuccess: (_, { botId }) => qc.invalidateQueries({ queryKey: ['music-bot-state', botId] }),
+  });
+}
+
 // === Video Streaming Hooks ===
 
 export function useVideoStreamStatus(botId: number | null) {

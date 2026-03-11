@@ -225,29 +225,72 @@ export class MusicCommandHandler {
     }
   }
 
+  private showQueue(bot: VoiceBot, userClid: number): void {
+    const items = bot.queue.getAll();
+    if (items.length === 0) {
+      this.reply(bot, userClid, 'Queue is empty.');
+      return;
+    }
+
+    const currentIdx = bot.queue.index;
+    const lines = items.slice(0, 15).map((item, i) => {
+      const marker = i === currentIdx ? '▶ ' : '  ';
+      const artist = item.artist ? `${item.artist} - ` : '';
+      const dur = item.duration ? ` [${Math.floor(item.duration / 60)}:${String(Math.floor(item.duration % 60)).padStart(2, '0')}]` : '';
+      return `${marker}${i + 1}. ${artist}${item.title}${dur}`;
+    });
+    if (items.length > 15) lines.push(`  ... and ${items.length - 15} more`);
+    this.reply(bot, userClid, `Queue (${items.length} tracks):\n${lines.join('\n')}`);
+  }
+
   private async handleQueue(bot: VoiceBot, userClid: number, args: string): Promise<void> {
-    // No args — show current queue
-    if (!args) {
+    // No args or "show" — display current queue
+    if (!args || args.toLowerCase() === 'show') {
+      this.showQueue(bot, userClid);
+      return;
+    }
+
+    // !queue remove <index>
+    if (args.toLowerCase().startsWith('remove ')) {
+      const idx = parseInt(args.substring(7).trim()) - 1; // 1-based to 0-based
       const items = bot.queue.getAll();
-      if (items.length === 0) {
-        this.reply(bot, userClid, 'Queue is empty.');
+      if (isNaN(idx) || idx < 0 || idx >= items.length) {
+        this.reply(bot, userClid, `Invalid index. Queue has ${items.length} tracks.`);
         return;
       }
+      const removed = items[idx];
+      bot.queue.remove(removed.id);
+      this.reply(bot, userClid, `Removed #${idx + 1}: ${removed.title}`);
+      return;
+    }
 
-      const np = bot.nowPlaying;
-      const lines = items.slice(0, 15).map((item, i) => {
-        const marker = np && item.id === np.id ? '▶ ' : '  ';
-        const artist = item.artist ? `${item.artist} - ` : '';
-        return `${marker}${i + 1}. ${artist}${item.title}`;
-      });
-      if (items.length > 15) lines.push(`  ... and ${items.length - 15} more`);
-      this.reply(bot, userClid, `Queue (${items.length} tracks):\n${lines.join('\n')}`);
+    // !queue play <index>
+    if (args.toLowerCase().startsWith('play ')) {
+      const idx = parseInt(args.substring(5).trim()) - 1; // 1-based to 0-based
+      const item = bot.queue.playAt(idx);
+      if (!item) {
+        this.reply(bot, userClid, `Invalid index. Queue has ${bot.queue.length} tracks.`);
+        return;
+      }
+      if (item.streamUrl) {
+        await bot.playStream(item);
+      } else {
+        await bot.play(item);
+      }
+      this.reply(bot, userClid, `Playing #${idx + 1}: ${item.title}`);
+      return;
+    }
+
+    // !queue clear
+    if (args.toLowerCase() === 'clear') {
+      bot.queue.clear();
+      this.reply(bot, userClid, 'Queue cleared.');
       return;
     }
 
     // URL provided — add to queue without interrupting
     if (!args.startsWith('http://') && !args.startsWith('https://')) {
-      this.reply(bot, userClid, 'Usage: !queue [url] — Show queue or add a song.');
+      this.reply(bot, userClid, 'Usage: !queue [show|play <n>|remove <n>|clear|<url>]');
       return;
     }
 

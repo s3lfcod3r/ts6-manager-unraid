@@ -30,6 +30,10 @@ export class PlayQueue {
     return this.items.length;
   }
 
+  get index(): number {
+    return this.currentIndex;
+  }
+
   get repeat(): RepeatMode {
     return this._repeat;
   }
@@ -129,6 +133,31 @@ export class PlayQueue {
     }
 
     return this.current;
+  }
+
+  move(fromIndex: number, toIndex: number): boolean {
+    if (fromIndex < 0 || fromIndex >= this.items.length) return false;
+    if (toIndex < 0 || toIndex >= this.items.length) return false;
+    if (fromIndex === toIndex) return true;
+
+    const [item] = this.items.splice(fromIndex, 1);
+    this.items.splice(toIndex, 0, item);
+
+    // Adjust currentIndex to follow the currently playing track
+    if (this.currentIndex === fromIndex) {
+      this.currentIndex = toIndex;
+    } else if (fromIndex < this.currentIndex && toIndex >= this.currentIndex) {
+      this.currentIndex--;
+    } else if (fromIndex > this.currentIndex && toIndex <= this.currentIndex) {
+      this.currentIndex++;
+    }
+
+    // Regenerate shuffle order since indices changed
+    if (this._shuffle) {
+      this.regenerateShuffleOrder();
+    }
+
+    return true;
   }
 
   setRepeat(mode: RepeatMode): void {

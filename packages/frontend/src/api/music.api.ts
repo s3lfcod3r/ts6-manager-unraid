@@ -34,6 +34,8 @@ export const musicBotsApi = {
   clearQueue: (id: number) => api.delete(`/music-bots/${id}/queue`).then((r) => r.data),
   shuffle: (id: number, enabled: boolean) => api.post(`/music-bots/${id}/queue/shuffle`, { enabled }).then((r) => r.data),
   repeat: (id: number, mode: string) => api.post(`/music-bots/${id}/queue/repeat`, { mode }).then((r) => r.data),
+  playFromQueue: (id: number, index: number) => api.post(`/music-bots/${id}/queue/${index}/play`).then((r) => r.data),
+  moveQueueItem: (id: number, from: number, to: number) => api.put(`/music-bots/${id}/queue/move`, { from, to }).then((r) => r.data),
 
   // Video Streaming
   startStream: (id: number, source: string, preset?: string) =>
