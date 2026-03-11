@@ -91,9 +91,16 @@ function normalizeFlowData(raw: any): FlowDefinition {
       const params: Record<string, string> = {};
       if (config.channel_name) params.channel_name = config.channel_name;
       if (config.cpid) params.cpid = config.cpid;
-      if (config.channel_flag_temporary) params.channel_flag_temporary = config.channel_flag_temporary;
-      if (config.channel_flag_semi_permanent) params.channel_flag_semi_permanent = config.channel_flag_semi_permanent;
+      const tmp = String(config.channel_flag_temporary ?? '');
+      const semi = String(config.channel_flag_semi_permanent ?? '');
+      if (tmp === '1') {
+        params.channel_flag_temporary = '1';
+      } else if (semi === '1') {
+        params.channel_flag_semi_permanent = '1';
+      }
+      // If neither flag is '1', channel will be permanent (TS3 default)
       if (config.channel_topic) params.channel_topic = config.channel_topic;
+      if (config.channel_password) params.channel_password = config.channel_password;
       data = { actionType: 'channelCreate', label, params: { ...params, ...config.params } };
     } else if (nodeType === 'action_channelEdit') {
       type = 'action';
@@ -102,6 +109,7 @@ function normalizeFlowData(raw: any): FlowDefinition {
       if (config.channel_topic) params.channel_topic = config.channel_topic;
       if (config.channel_description) params.channel_description = config.channel_description;
       if (config.channel_maxclients) params.channel_maxclients = config.channel_maxclients;
+      if (config.channel_password) params.channel_password = config.channel_password;
       data = { actionType: 'channelEdit', label, channelId: config.channelId || config.cid || '', params: { ...params, ...config.params } };
     } else if (nodeType === 'action_channelDelete') {
       type = 'action';
@@ -175,6 +183,9 @@ function normalizeFlowData(raw: any): FlowDefinition {
     } else if (nodeType === 'variable') {
       type = 'variable';
       data = { nodeType: 'variable', label, operation: config.operation || 'set', variableName: config.name || '', value: config.value || '' };
+    } else if (nodeType === 'action_generateCode') { 
+      type = 'action'; 
+      data = { actionType: 'generateCode', label, length: parseInt(config.length, 10) || 5, storeAs: config.storeAs || 'code', numericOnly: config.numericOnly !== false, };
     } else if (nodeType === 'log') {
       type = 'log';
       data = { nodeType: 'log', label, level: config.level || 'info', message: config.message || '' };
@@ -606,7 +617,7 @@ export class BotEngine {
             data.clientId;
 
           if (invoker && !data.clid) {
-            
+
             (enrichedData as any).clid = String(invoker);
           }
 
