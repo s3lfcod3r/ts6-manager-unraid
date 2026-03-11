@@ -341,6 +341,11 @@ export class VoiceBot extends EventEmitter {
     this.client.disconnect();
   }
 
+  /** Force-close the underlying socket if still open, without triggering reconnect */
+  ensureDisconnected(): void {
+    this.client.forceClose();
+  }
+
   async restart(): Promise<void> {
     await this.stop();
     await new Promise<void>((resolve) => {

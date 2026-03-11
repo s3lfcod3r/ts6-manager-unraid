@@ -43,6 +43,10 @@ export const permissionsApi = {
   // Client permissions
   clientPerms: (configId: number, sid: number, cldbid: number) =>
     api.get(`${clBase(configId, sid)}/${cldbid}/permissions`).then((r) => r.data),
+  addClientPerm: (configId: number, sid: number, cldbid: number, data: any) =>
+    api.put(`${clBase(configId, sid)}/${cldbid}/permissions`, data).then((r) => r.data),
+  delClientPerm: (configId: number, sid: number, cldbid: number, data: any) =>
+    api.delete(`${clBase(configId, sid)}/${cldbid}/permissions`, { data }).then((r) => r.data),
 
   // Server groups & channel groups list
   serverGroups: (configId: number, sid: number) =>

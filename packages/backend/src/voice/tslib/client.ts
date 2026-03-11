@@ -213,6 +213,18 @@ export class Ts3Client extends EventEmitter {
     });
   }
 
+  /** Immediately close the socket without sending a disconnect command */
+  forceClose(): void {
+    if (this.state === "disconnected") return;
+    this.state = "disconnected";
+    if (this.resendTimer) clearInterval(this.resendTimer);
+    if (this.pingTimer) clearInterval(this.pingTimer);
+    this.resendTimer = null;
+    this.pingTimer = null;
+    this.socket?.close();
+    this.socket = null;
+  }
+
   disconnect(): void {
     if (this.state === "connected") {
       this.state = "disconnecting";
