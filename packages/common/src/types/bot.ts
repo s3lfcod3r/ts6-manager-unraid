@@ -82,7 +82,8 @@ export type ActionNodeData =
   | PokeGroupActionData
   | RankCheckActionData
   | TempChannelCleanupActionData
-  | AnimatedChannelActionData;
+  | AnimatedChannelActionData
+  | GenerateCodeActionData;
 
 export interface KickActionData {
   actionType: 'kick';
@@ -245,6 +246,15 @@ export interface VariableNodeData {
   operation: 'set' | 'increment' | 'append';
   variableName: string;
   value: string;
+}
+
+// --- Generate Code ---
+export interface GenerateCodeActionData {
+  actionType: 'generateCode';
+  label: string;
+  length?: number;
+  storeAs?: string;
+  numericOnly?: boolean;  
 }
 
 // --- Log ---

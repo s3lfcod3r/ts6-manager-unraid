@@ -360,7 +360,7 @@ function PlaySongDialog({ botId, onClose, onPlaySong, onPlayUrl, onEnqueue, onLo
               placeholder="Filter songs..."
               className="h-8 text-xs"
             />
-            <ScrollArea className="flex-1 max-h-[400px] mt-2">
+            <div className="flex-1 max-h-[400px] mt-2 overflow-y-auto">
               {filtered.length === 0 ? (
                 <p className="text-xs text-muted-foreground text-center py-8">No songs found. Upload songs in the Library tab first.</p>
               ) : filtered.map((song) => (
@@ -384,12 +384,12 @@ function PlaySongDialog({ botId, onClose, onPlaySong, onPlayUrl, onEnqueue, onLo
                   </div>
                 </div>
               ))}
-            </ScrollArea>
+            </div>
           </>
         )}
 
         {tab === 'playlists' && (
-          <ScrollArea className="flex-1 max-h-[400px]">
+          <div className="flex-1 max-h-[400px] overflow-y-auto">
             {playlistList.length === 0 ? (
               <p className="text-xs text-muted-foreground text-center py-8">No playlists. Create one in the Playlists tab.</p>
             ) : playlistList.map((pl) => (
@@ -406,11 +406,11 @@ function PlaySongDialog({ botId, onClose, onPlaySong, onPlayUrl, onEnqueue, onLo
                 </Button>
               </div>
             ))}
-          </ScrollArea>
+          </div>
         )}
 
         {tab === 'history' && (
-          <ScrollArea className="flex-1 max-h-[400px]">
+          <div className="flex-1 max-h-[400px] overflow-y-auto">
             {history.length === 0 ? (
               <p className="text-xs text-muted-foreground text-center py-8">No music requests found. Use !play in chat to build history.</p>
             ) : history.map((req: any) => (
@@ -428,7 +428,7 @@ function PlaySongDialog({ botId, onClose, onPlaySong, onPlayUrl, onEnqueue, onLo
                 </div>
               </div>
             ))}
-          </ScrollArea>
+          </div>
         )}
 
         <DialogFooter>
@@ -928,7 +928,7 @@ function LibraryTab() {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            <ScrollArea className="max-h-60">
+            <div className="max-h-60 overflow-y-auto">
               {ytResults.map((r) => (
                 <div key={r.id} className="flex items-center gap-3 px-3 py-2 hover:bg-muted/50 transition-colors">
                   {r.thumbnail && (
@@ -946,7 +946,7 @@ function LibraryTab() {
                   </Button>
                 </div>
               ))}
-            </ScrollArea>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -963,7 +963,7 @@ function LibraryTab() {
             <span className="w-16 text-right">Size</span>
             <span className="w-16" />
           </div>
-          <ScrollArea className="max-h-[400px]">
+          <div className="max-h-[400px] overflow-y-auto">
             {filtered.map((song) => (
               <div key={song.id} className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] gap-2 px-3 py-2 hover:bg-muted/30 transition-colors items-center border-t border-border/50">
                 <div className="min-w-0">
@@ -984,7 +984,7 @@ function LibraryTab() {
                 </div>
               </div>
             ))}
-          </ScrollArea>
+          </div>
         </div>
       )}
 
@@ -1090,7 +1090,7 @@ function PlaylistsTab() {
               {detail.songs.length === 0 ? (
                 <div className="py-8 text-center text-xs text-muted-foreground">No songs in this playlist</div>
               ) : (
-                <ScrollArea className="max-h-[400px]">
+                <div className="max-h-[400px] overflow-y-auto">
                   {detail.songs.map((song: any, i: number) => (
                     <div key={song.id} className="flex items-center gap-2 px-4 py-2 hover:bg-muted/30 transition-colors border-t border-border/50">
                       <span className="text-[10px] text-muted-foreground w-5 text-right">{i + 1}</span>
@@ -1108,7 +1108,7 @@ function PlaylistsTab() {
                       </Button>
                     </div>
                   ))}
-                </ScrollArea>
+                </div>
               )}
             </CardContent>
           </Card>
