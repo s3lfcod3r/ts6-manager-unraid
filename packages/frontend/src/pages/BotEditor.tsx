@@ -1063,6 +1063,21 @@ export default function BotEditor() {
                         </Select>
                       </div>
                       <div>
+                        <Label className="text-[10px] text-muted-foreground">Headers (JSON)</Label>
+                        <Input
+                          className="h-7 text-xs mt-1 font-mono-data"
+                          placeholder='{"Authorization":"Bearer xxx"}'
+                          value={selectedNodeData.config.headersRaw ?? (selectedNodeData.config.headers ? JSON.stringify(selectedNodeData.config.headers) : '')}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            let parsed: Record<string, string> | undefined;
+                            try { parsed = JSON.parse(raw); } catch { /* user still typing */ }
+                            setNodes((prev) => prev.map((n) => n.id === selectedNode ? { ...n, config: { ...n.config, headersRaw: raw, headers: parsed ?? n.config.headers } } : n));
+                          }}
+                        />
+                        <p className="text-[9px] text-muted-foreground/60 mt-0.5">Key-value pairs as JSON object. Supports {'{{placeholders}}'}.</p>
+                      </div>
+                      <div>
                         <Label className="text-[10px] text-muted-foreground">Body (JSON)</Label>
                         <Input className="h-7 text-xs mt-1 font-mono-data" placeholder='{"ip":"{{event.connection_client_ip}}"}' value={selectedNodeData.config.body || ''} onChange={(e) => setNodes((prev) => prev.map((n) => n.id === selectedNode ? { ...n, config: { ...n.config, body: e.target.value } } : n))} />
                       </div>

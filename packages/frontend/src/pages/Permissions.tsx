@@ -229,6 +229,7 @@ export default function Permissions() {
           case 'server-group': await permissionsApi.addServerGroupPerm(c, s, entityId, data); break;
           case 'channel-group': await permissionsApi.addChannelGroupPerm(c, s, entityId, data); break;
           case 'channel': await permissionsApi.addChannelPerm(c, s, entityId, data); break;
+          case 'client': await permissionsApi.addClientPerm(c, s, entityId, data); break;
         }
       }
       for (const perm of toRemove) {
@@ -237,6 +238,7 @@ export default function Permissions() {
           case 'server-group': await permissionsApi.delServerGroupPerm(c, s, entityId, data); break;
           case 'channel-group': await permissionsApi.delChannelGroupPerm(c, s, entityId, data); break;
           case 'channel': await permissionsApi.delChannelPerm(c, s, entityId, data); break;
+          case 'client': await permissionsApi.delClientPerm(c, s, entityId, data); break;
         }
       }
     },
@@ -269,7 +271,7 @@ export default function Permissions() {
         return (Array.isArray(clients) ? clients : [])
           .filter((cl: any) => String(cl.client_type) === '0')
           .map((cl: any) => ({
-            id: Number(cl.clid), name: cl.client_nickname, type: 0,
+            id: Number(cl.client_database_id), name: cl.client_nickname, type: 0,
           }));
       default: return [];
     }

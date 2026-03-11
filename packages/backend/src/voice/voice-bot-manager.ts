@@ -10,6 +10,7 @@ import { decrypt, encrypt } from '../utils/crypto.js';
 const PROGRESS_INTERVAL_MS = 1000;
 const MAX_RECONNECT_ATTEMPTS = 10;
 const MAX_RECONNECT_DELAY_MS = 30000;
+const RECONNECT_GRACE_PERIOD_MS = 5000;
 
 interface ReconnectState {
   attempts: number;
@@ -349,6 +350,11 @@ export class VoiceBotManager extends EventEmitter {
     state.timer = null;
 
     try {
+      // Ensure previous connection is fully cleaned up before reconnecting
+      // This prevents duplicate clients when the TS server restarts
+      bot.ensureDisconnected();
+      await new Promise((r) => setTimeout(r, RECONNECT_GRACE_PERIOD_MS));
+
       await bot.start();
       console.log(`[VoiceBotManager] Bot ${botId}: reconnected successfully after ${state.attempts} attempt(s)`);
       this.reconnectState.delete(botId);
