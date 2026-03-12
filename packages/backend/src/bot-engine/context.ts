@@ -150,11 +150,17 @@ export class ExecutionContext {
         // Support nested access: temp.server.virtualserver_clientsonline
         const firstDot = dotPath.indexOf('.');
         if (firstDot === -1) {
-          value = String(this.tempVars.get(dotPath) ?? '');
+          const raw = this.tempVars.get(dotPath);
+          // If value is an object/array, serialize as JSON so {{temp.apiResult}} returns valid JSON text
+          value = raw == null ? '' : (typeof raw === 'object' ? JSON.stringify(raw) : String(raw));
         } else {
           const topKey = dotPath.substring(0, firstDot);
           const rest = dotPath.substring(firstDot + 1);
-          const topVal = this.tempVars.get(topKey);
+          let topVal = this.tempVars.get(topKey);
+          // If stored as JSON string (e.g. from HTTP response), parse it for dot access
+          if (typeof topVal === 'string') {
+            try { topVal = JSON.parse(topVal); } catch { /* not JSON */ }
+          }
           const resolved = resolveDotPath(topVal, rest);
           value = resolved != null ? String(resolved) : '';
         }

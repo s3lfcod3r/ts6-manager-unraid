@@ -507,7 +507,6 @@ func (s *Sidecar) StartFFmpeg(source string) {
 
 	w := envIntOrDefault("VIDEO_WIDTH", 1280)
 	h := envIntOrDefault("VIDEO_HEIGHT", 720)
-	fps := envOrDefault("VIDEO_FRAMERATE", "30")
 	vBitrate := envOrDefault("VIDEO_BITRATE", "1500k")
 
 	if source != "" {
@@ -515,7 +514,7 @@ func (s *Sidecar) StartFFmpeg(source string) {
 		args = append(args,
 			"-map", "0:v:0",
 			"-vf", vf,
-			"-r", fps,
+			"-vsync", "passthrough",
 		)
 	}
 	args = append(args,

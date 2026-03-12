@@ -452,7 +452,16 @@ export class FlowRunner {
       transformResponse: [(data) => data], // Return raw response, don't auto-parse JSON
     });
     if (data.storeAs) {
-      ctx.setTemp(data.storeAs, response.data);
+      // Try to parse JSON so nested dot-access (e.g. {{temp.apiResult.field}}) works
+      let stored: any = response.data;
+      if (typeof stored === 'string') {
+        try {
+          stored = JSON.parse(stored);
+        } catch {
+          // Not JSON — keep as plain string
+        }
+      }
+      ctx.setTemp(data.storeAs, stored);
     }
   }
 
