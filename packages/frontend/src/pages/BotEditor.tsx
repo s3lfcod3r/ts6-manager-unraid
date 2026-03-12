@@ -954,6 +954,10 @@ export default function BotEditor() {
                         <Input className="h-7 text-xs mt-1" placeholder="Optional" value={selectedNodeData.config.channel_topic || ''} onChange={(e) => setNodes((prev) => prev.map((n) => n.id === selectedNode ? { ...n, config: { ...n.config, channel_topic: e.target.value } } : n))} />
                       </div>
                       <div>
+                        <Label className="text-[10px] text-muted-foreground">Channel Description</Label>
+                        <Textarea className="text-xs mt-1 min-h-[60px] font-mono-data" placeholder="{{temp.apiResult}}" value={selectedNodeData.config.channel_description || ''} onChange={(e) => setNodes((prev) => prev.map((n) => n.id === selectedNode ? { ...n, config: { ...n.config, channel_description: e.target.value } } : n))} />
+                      </div>
+                      <div>
                         <Label className="text-[10px] text-muted-foreground">Channel Password (optional)</Label>
                         <Input
                           className="h-7 text-xs mt-1 font-mono-data"
