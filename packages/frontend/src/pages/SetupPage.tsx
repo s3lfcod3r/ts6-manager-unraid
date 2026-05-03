@@ -5,7 +5,24 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Loader2, AlertCircle, ShieldCheck } from 'lucide-react';
-import axios from 'axios';
+import axios, { isAxiosError } from 'axios';
+
+function setupErrorMessage(err: unknown): string {
+  if (isAxiosError(err)) {
+    const d = err.response?.data;
+    if (d && typeof d === 'object' && 'error' in d && typeof (d as { error: unknown }).error === 'string') {
+      const msg = (d as { error: string }).error;
+      const details = 'details' in d && typeof (d as { details: unknown }).details === 'string' ? (d as { details: string }).details : '';
+      return details ? `${msg} (${details})` : msg;
+    }
+    if (typeof d === 'string' && d.length > 0 && d.length < 400) return d;
+    if (err.response?.status === 403) return 'Setup was already completed. Log in with an existing account.';
+    if (err.response?.status === 500) return 'Server error while creating the account. Check container logs (database / migrations).';
+    if (!err.response) return err.message || 'Could not reach the server. Check your connection and port mapping.';
+    return `Request failed (HTTP ${err.response.status}).`;
+  }
+  return 'Setup failed';
+}
 
 export default function SetupPage() {
   const navigate = useNavigate();
@@ -49,8 +66,8 @@ export default function SetupPage() {
         displayName: displayName || username,
       });
       navigate('/login', { replace: true });
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Setup failed');
+    } catch (err: unknown) {
+      setError(setupErrorMessage(err));
     } finally {
       setLoading(false);
     }
