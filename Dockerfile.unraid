@@ -21,16 +21,21 @@ RUN pnpm --filter @ts6/backend run build
 # Nur Production-Dependencies installieren
 RUN pnpm --filter @ts6/backend --prod deploy /app/backend-prod
 
-# pnpm deploy legt prisma oft ohne CLI-Build ab (kein build/index.js).
-# Vollständiges prisma-Paket aus dem normalen node_modules-Baum (pnpm store) kopieren.
+# pnpm deploy legt prisma oft unvollständig ab. CLI braucht prisma + @prisma/* (engines, fetch-engine, debug, …).
 RUN set -e; \
   PRISMA_PKG="$(find /app -path '*/node_modules/prisma/package.json' -type f ! -path '/app/backend-prod/*' | head -n1)"; \
   test -n "$PRISMA_PKG"; \
   PRISMA_ROOT="$(dirname "$PRISMA_PKG")"; \
   test -f "$PRISMA_ROOT/build/index.js"; \
-  mkdir -p /prisma-cli-bundle; \
-  cp -a "$PRISMA_ROOT" /prisma-cli-bundle/prisma; \
-  test -f /prisma-cli-bundle/prisma/build/index.js
+  ENGINES_PKG="$(find /app -path '*/node_modules/@prisma/engines/package.json' -type f ! -path '/app/backend-prod/*' | head -n1)"; \
+  test -n "$ENGINES_PKG"; \
+  AT_PRISMA="$(dirname "$(dirname "$ENGINES_PKG")")"; \
+  test -d "$AT_PRISMA/engines"; \
+  mkdir -p /prisma-cli-bundle/prisma /prisma-cli-bundle/extra-atprisma; \
+  cp -a "$PRISMA_ROOT/." /prisma-cli-bundle/prisma/; \
+  cp -a "$AT_PRISMA/." /prisma-cli-bundle/extra-atprisma/; \
+  test -f /prisma-cli-bundle/prisma/build/index.js; \
+  test -f /prisma-cli-bundle/extra-atprisma/engines/package.json
 
 # ── Stage 2: Combined Runtime ────────────────────────────────
 FROM node:20-slim AS production
@@ -99,12 +104,13 @@ WORKDIR /app
 
 # Production-Build des Backends
 COPY --from=build /app/backend-prod ./
-# Vollständige Prisma-CLI (siehe Build-Stage)
+# Prisma-CLI + kompletter @prisma-Scope neben engines (siehe Build-Stage)
 COPY --from=build /prisma-cli-bundle/prisma ./node_modules/prisma/
+COPY --from=build /prisma-cli-bundle/extra-atprisma/ ./node_modules/@prisma/
 COPY --from=build /app/packages/backend/prisma ./prisma/
 COPY --from=build /app/packages/backend/generated ./generated/
 
-RUN test -f ./node_modules/prisma/build/index.js
+RUN test -f ./node_modules/prisma/build/index.js && test -f ./node_modules/@prisma/engines/package.json
 
 # Ohne prisma/migrations schlägt migrate deploy fehl → db push (Schema → SQLite)
 RUN printf '#!/bin/sh\n\
