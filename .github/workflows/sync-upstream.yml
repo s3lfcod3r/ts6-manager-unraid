@@ -2,62 +2,29 @@ name: Sync Upstream & Build Docker
 
 on:
   schedule:
-    # Prüft alle 6 Stunden auf Updates vom Original-Repo
     - cron: '0 */6 * * *'
-  workflow_dispatch: # Manueller Start möglich
+  workflow_dispatch:
 
 jobs:
-  sync:
-    runs-on: ubuntu-latest
-    outputs:
-      updated: ${{ steps.sync.outputs.updated }}
-    steps:
-      - name: Checkout your repo
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Add upstream remote
-        run: |
-          git remote add upstream https://github.com/clusterzx/ts6-manager.git || true
-          git fetch upstream
-
-      - name: Merge upstream main
-        id: sync
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          BEFORE=$(git rev-parse HEAD)
-          git merge upstream/main --no-edit --allow-unrelated-histories || true
-          AFTER=$(git rev-parse HEAD)
-
-          if [ "$BEFORE" != "$AFTER" ]; then
-            echo "updated=true" >> $GITHUB_OUTPUT
-            echo "✅ Neue Änderungen vom Upstream gemergt!"
-          else
-            echo "updated=false" >> $GITHUB_OUTPUT
-            echo "ℹ️ Bereits aktuell."
-          fi
-
-      - name: Push merged changes
-        if: steps.sync.outputs.updated == 'true'
-        run: git push origin main
-
   build-and-push:
-    needs: sync
-    if: needs.sync.outputs.updated == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
 
     steps:
-      - name: Checkout
+      - name: Checkout your repo (for Dockerfile.unraid)
         uses: actions/checkout@v4
         with:
-          ref: main
+          path: myrepo
+
+      - name: Clone upstream repo
+        run: |
+          git clone https://github.com/clusterzx/ts6-manager.git upstream
+
+      - name: Copy Dockerfile.unraid into upstream source
+        run: |
+          cp myrepo/Dockerfile.unraid upstream/Dockerfile.unraid
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -69,11 +36,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push – Single Container (Unraid)
+      - name: Build and push – Single Container
         uses: docker/build-push-action@v5
         with:
-          context: .
-          file: Dockerfile.unraid
+          context: upstream
+          file: upstream/Dockerfile.unraid
           push: true
           tags: |
             ghcr.io/kabelsalatundklartext/ts6-manager:latest
