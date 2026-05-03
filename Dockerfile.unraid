@@ -15,8 +15,8 @@ COPY . .
 RUN pnpm install --no-frozen-lockfile
 RUN pnpm --filter @ts6/common run build
 RUN pnpm --filter @ts6/frontend run build
-# Prisma Client generieren bevor Backend gebaut wird
-RUN npx prisma generate --schema=packages/backend/prisma/schema.prisma
+# Prisma Client generieren mit der lokalen Version aus node_modules
+RUN ./node_modules/.bin/prisma generate --schema=packages/backend/prisma/schema.prisma
 RUN pnpm --filter @ts6/backend run build
 
 # Nur Production-Dependencies installieren
