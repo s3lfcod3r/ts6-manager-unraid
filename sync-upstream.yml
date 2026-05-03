@@ -2,9 +2,9 @@ name: Sync Upstream & Build Docker
 
 on:
   schedule:
-    # Checks for updates every 6 hours
+    # Prüft alle 6 Stunden auf Updates vom Original-Repo
     - cron: '0 */6 * * *'
-  workflow_dispatch: # allows manual trigger
+  workflow_dispatch: # Manueller Start möglich
 
 jobs:
   sync:
@@ -35,10 +35,10 @@ jobs:
 
           if [ "$BEFORE" != "$AFTER" ]; then
             echo "updated=true" >> $GITHUB_OUTPUT
-            echo "✅ New changes from upstream merged!"
+            echo "✅ Neue Änderungen vom Upstream gemergt!"
           else
             echo "updated=false" >> $GITHUB_OUTPUT
-            echo "ℹ️ Already up to date."
+            echo "ℹ️ Bereits aktuell."
           fi
 
       - name: Push merged changes
@@ -66,34 +66,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}/ts6-manager
-          tags: |
-            type=raw,value=latest
-            type=sha,prefix=sha-
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push Backend
+      - name: Build and push – Single Container (Unraid)
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: Dockerfile.backend
+          file: Dockerfile.unraid
           push: true
-          tags: ghcr.io/kabelsalatundklartext/ts6-manager-backend:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build and push Frontend
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: Dockerfile.frontend
-          push: true
-          tags: ghcr.io/kabelsalatundklartext/ts6-manager-frontend:latest
+          tags: |
+            ghcr.io/kabelsalatundklartext/ts6-manager:latest
+            ghcr.io/kabelsalatundklartext/ts6-manager:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
