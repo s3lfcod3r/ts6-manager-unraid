@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -9,12 +10,38 @@ import { useAuthStore } from '@/stores/auth.store';
 import { Loader2, AlertCircle } from 'lucide-react';
 
 export default function Login() {
+  const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [setupChecking, setSetupChecking] = useState(true);
   const login = useLogin();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated());
 
+  useEffect(() => {
+    let cancelled = false;
+    axios
+      .get<{ needsSetup: boolean }>('/api/setup/status')
+      .then((res) => {
+        if (cancelled) return;
+        if (res.data.needsSetup) navigate('/setup', { replace: true });
+        else setSetupChecking(false);
+      })
+      .catch(() => {
+        if (!cancelled) setSetupChecking(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+
   if (isAuthenticated) return <Navigate to="/dashboard" replace />;
+  if (setupChecking) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,6 +109,11 @@ export default function Login() {
                   'Sign In'
                 )}
               </Button>
+              <p className="text-center text-xs text-muted-foreground">
+                <Link to="/setup" className="underline underline-offset-2 hover:text-foreground">
+                  First-time setup (create admin)
+                </Link>
+              </p>
             </form>
           </CardContent>
         </Card>
