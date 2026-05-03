@@ -91,11 +91,11 @@ COPY --from=build /app/backend-prod ./
 COPY --from=build /app/packages/backend/prisma ./prisma/
 COPY --from=build /app/packages/backend/generated ./generated/
 
-# Migrations: lokale prisma@6 (npx ohne Lockfile lädt sonst Prisma 7)
+# migrate: pnpm deploy legt oft kein node_modules/.bin/prisma an → CLI direkt per Node
 RUN printf '#!/bin/sh\n\
 set -e\n\
 echo "[startup] Running Prisma migrations..."\n\
-./node_modules/.bin/prisma migrate deploy\n\
+node ./node_modules/prisma/build/index.js migrate deploy\n\
 echo "[startup] Starting backend..."\n\
 exec node dist/index.js\n' > /app/start-backend.sh && chmod +x /app/start-backend.sh
 
