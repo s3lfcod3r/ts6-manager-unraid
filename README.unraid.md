@@ -1,56 +1,149 @@
-# TS6 Manager – Unraid Fork
+# syntax=docker/dockerfile:1.4
+# =============================================================
+# TS6 Manager – Single Container für Unraid
+# Kombiniert Frontend (nginx) + Backend (Node.js) in einem Image
+# via supervisord
+# =============================================================
 
-Dieses Repository ist ein automatisch synchronisierter Fork von [clusterzx/ts6-manager](https://github.com/clusterzx/ts6-manager) mit zusätzlichen Dateien für **Unraid** und **automatischen Docker-Image-Builds**.
+# ── Stage 1: Build ──────────────────────────────────────────
+FROM node:20-slim AS base
+RUN corepack enable && corepack prepare pnpm@9 --activate
+WORKDIR /app
 
-## 🔄 Automatische Updates
+FROM base AS build
+COPY . .
+RUN pnpm install --no-frozen-lockfile
+RUN pnpm --filter @ts6/common run build
+RUN pnpm --filter @ts6/frontend run build
+RUN pnpm --filter @ts6/backend run build
 
-Ein GitHub Actions Workflow prüft alle **6 Stunden**, ob es neue Commits im Original-Repo gibt. Wenn ja:
-1. Werden die Änderungen automatisch in dieses Repo gemergt
-2. Wird ein neues Docker Image gebaut und auf `ghcr.io` gepusht
+# Nur Production-Dependencies installieren
+RUN pnpm --filter @ts6/backend --prod deploy /app/backend-prod
 
-Du musst also **nichts manuell tun** – dein Unraid-Container wird beim nächsten Pull automatisch aktuell sein.
+# ── Stage 2: Combined Runtime ────────────────────────────────
+FROM node:20-slim AS production
 
-## 🐳 Unraid Setup
+# System-Tools: nginx, supervisord, ffmpeg, yt-dlp, openssl
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    nginx \
+    supervisor \
+    ffmpeg \
+    python3 \
+    python3-pip \
+    curl \
+    openssl \
+    && pip3 install --break-system-packages yt-dlp \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-### Schritt 1: Docker Images verfügbar machen
+# Prisma CLI braucht Node im PATH (bereits vorhanden durch node:20-slim)
 
-Nach dem ersten automatischen Build findest du die Images unter:
-- `ghcr.io/kabelsalatundklartext/ts6-manager-backend:latest`
-- `ghcr.io/kabelsalatundklartext/ts6-manager-frontend:latest`
+# ── Frontend ────────────────────────────────────────────────
+COPY --from=build /app/packages/frontend/dist /usr/share/nginx/html
 
-### Schritt 2: Unraid Community Applications Templates
+# nginx Konfiguration: SPA Routing + API Proxy zum internen Backend
+RUN printf 'server {\n\
+    listen 80;\n\
+    server_name _;\n\
+    root /usr/share/nginx/html;\n\
+    index index.html;\n\
+\n\
+    client_max_body_size 150m;\n\
+\n\
+    # API & WebSocket -> internes Backend\n\
+    location /api {\n\
+        proxy_pass http://127.0.0.1:3001;\n\
+        proxy_http_version 1.1;\n\
+        proxy_set_header Upgrade $http_upgrade;\n\
+        proxy_set_header Connection "upgrade";\n\
+        proxy_set_header Host $host;\n\
+        proxy_set_header X-Real-IP $remote_addr;\n\
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n\
+        proxy_read_timeout 120s;\n\
+    }\n\
+\n\
+    location /socket.io {\n\
+        proxy_pass http://127.0.0.1:3001;\n\
+        proxy_http_version 1.1;\n\
+        proxy_set_header Upgrade $http_upgrade;\n\
+        proxy_set_header Connection "upgrade";\n\
+        proxy_set_header Host $host;\n\
+    }\n\
+\n\
+    location /widget {\n\
+        proxy_pass http://127.0.0.1:3001;\n\
+        proxy_http_version 1.1;\n\
+        proxy_set_header Host $host;\n\
+    }\n\
+\n\
+    # SPA Fallback\n\
+    location / {\n\
+        try_files $uri $uri/ /index.html;\n\
+    }\n\
+}\n' > /etc/nginx/sites-available/default
 
-Kopiere die URLs der XML-Templates in Unraid → Apps → Template Repositories:
-```
-https://raw.githubusercontent.com/kabelsalatundklartext/ts6-manager/main/unraid/
-```
+# ── Backend ──────────────────────────────────────────────────
+WORKDIR /app
 
-Oder importiere die XMLs direkt über **Add Container → Template** in Unraid.
+# Production-Build des Backends
+COPY --from=build /app/backend-prod ./
+COPY --from=build /app/packages/backend/prisma ./prisma/
 
-### Schritt 3: Container konfigurieren
+# Prisma Client generieren
+RUN npx prisma generate
 
-**Backend zuerst starten**, dann Frontend.
+# Startup-Script: Migrations + Backend starten
+RUN printf '#!/bin/sh\n\
+set -e\n\
+echo "[startup] Running Prisma migrations..."\n\
+npx prisma migrate deploy\n\
+echo "[startup] Starting backend..."\n\
+exec node dist/index.js\n' > /app/start-backend.sh && chmod +x /app/start-backend.sh
 
-Benötigte Werte für das Backend:
-- `JWT_SECRET` – Generieren mit: `openssl rand -base64 32`
-- `ENCRYPTION_KEY` – Generieren mit: `openssl rand -base64 32`
+# ── Supervisord Konfiguration ────────────────────────────────
+RUN printf '[supervisord]\n\
+nodaemon=true\n\
+logfile=/var/log/supervisor/supervisord.log\n\
+pidfile=/var/run/supervisord.pid\n\
+\n\
+[program:nginx]\n\
+command=nginx -g "daemon off;"\n\
+autostart=true\n\
+autorestart=true\n\
+stdout_logfile=/dev/stdout\n\
+stdout_logfile_maxbytes=0\n\
+stderr_logfile=/dev/stderr\n\
+stderr_logfile_maxbytes=0\n\
+priority=10\n\
+\n\
+[program:backend]\n\
+command=/app/start-backend.sh\n\
+directory=/app\n\
+autostart=true\n\
+autorestart=true\n\
+stdout_logfile=/dev/stdout\n\
+stdout_logfile_maxbytes=0\n\
+stderr_logfile=/dev/stderr\n\
+stderr_logfile_maxbytes=0\n\
+priority=20\n\
+environment=NODE_ENV="production"\n' > /etc/supervisor/conf.d/ts6manager.conf
 
-### Schritt 4: Erstkonfiguration
+# Supervisor Log-Verzeichnis
+RUN mkdir -p /var/log/supervisor
 
-Öffne `http://UNRAID-IP:3000/setup` und lege deinen Admin-Account an.
+# ── Volumes ──────────────────────────────────────────────────
+# Daten (SQLite DB + Musik) werden extern gemountet
+VOLUME ["/data", "/data/music"]
 
-Danach unter **Settings → Connections** deinen TeamSpeak Server eintragen (Host, WebQuery Port, API Key).
+# Prisma DB auf /data zeigen (wird zur Laufzeit gesetzt)
+ENV DATABASE_URL="file:/data/ts6webui.db"
+ENV MUSIC_DIR="/data/music"
+ENV PORT=3001
+ENV NODE_ENV=production
+ENV FRONTEND_URL="http://localhost:3000"
 
-## 📁 Zusätzliche Dateien in diesem Fork
+# ── Ports ────────────────────────────────────────────────────
+EXPOSE 80
 
-| Datei | Beschreibung |
-|-------|-------------|
-| `.github/workflows/sync-upstream.yml` | Auto-Sync + Docker Build |
-| `docker-compose.unraid.yml` | Docker Compose für Unraid |
-| `unraid/ts6-manager-backend.xml` | Unraid CA Template (Backend) |
-| `unraid/ts6-manager-frontend.xml` | Unraid CA Template (Frontend) |
-
-## ⚙️ Upstream
-
-Original-Projekt: https://github.com/clusterzx/ts6-manager  
-Lizenz: MIT
+# ── Entrypoint ───────────────────────────────────────────────
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf"]

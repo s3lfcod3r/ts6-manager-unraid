@@ -1,149 +1,37 @@
-# syntax=docker/dockerfile:1.4
-# =============================================================
-# TS6 Manager – Single Container für Unraid
-# Kombiniert Frontend (nginx) + Backend (Node.js) in einem Image
-# via supervisord
-# =============================================================
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>ts6-manager</Name>
+  <Repository>ghcr.io/kabelsalatundklartext/ts6-manager:latest</Repository>
+  <Registry>https://ghcr.io</Registry>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/kabelsalatundklartext/ts6-manager-unraid</Support>
+  <Project>https://github.com/clusterzx/ts6-manager</Project>
+  <Overview>TS6 Manager – Web-based management interface for TeamSpeak 6 servers. Frontend und Backend in einem einzigen Container. Nach dem Start: http://UNRAID-IP:3000/setup aufrufen und Admin-Account anlegen.</Overview>
+  <Category>GameServers: Tools:</Category>
+  <WebUI>http://[IP]:[PORT:3000]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/kabelsalatundklartext/ts6-manager-unraid/main/unraid/ts6-manager.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/clusterzx/ts6-manager/main/docs/dashboard.png</Icon>
+  <ExtraParams>--restart unless-stopped</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
 
-# ── Stage 1: Build ──────────────────────────────────────────
-FROM node:20-slim AS base
-RUN corepack enable && corepack prepare pnpm@9 --activate
-WORKDIR /app
+  <!-- Pflicht: Secrets -->
+  <Config Name="JWT Secret" Target="JWT_SECRET" Default="" Mode="" Description="Pflicht: Zufälliger Secret für JWT-Token (min. 32 Zeichen). Generieren mit: openssl rand -base64 32" Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="Encryption Key" Target="ENCRYPTION_KEY" Default="" Mode="" Description="Empfohlen: AES-256-GCM Schlüssel für gespeicherte Credentials. Generieren mit: openssl rand -base64 32" Type="Variable" Display="always" Required="false" Mask="true"></Config>
 
-FROM base AS build
-COPY . .
-RUN pnpm install --no-frozen-lockfile
-RUN pnpm --filter @ts6/common run build
-RUN pnpm --filter @ts6/frontend run build
-RUN pnpm --filter @ts6/backend run build
+  <!-- Optionale Einstellungen -->
+  <Config Name="TS Self-Signed erlauben" Target="TS_ALLOW_SELF_SIGNED" Default="false" Mode="" Description="Auf 'true' setzen wenn dein TeamSpeak ein selbst-signiertes Zertifikat nutzt" Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
+  <Config Name="JWT Access Token Laufzeit" Target="JWT_ACCESS_EXPIRY" Default="15m" Mode="" Description="Wie lange ein Access-Token gültig ist (z.B. 15m, 1h)" Type="Variable" Display="advanced" Required="false" Mask="false">15m</Config>
+  <Config Name="JWT Refresh Token Laufzeit" Target="JWT_REFRESH_EXPIRY" Default="7d" Mode="" Description="Wie lange ein Refresh-Token gültig ist (z.B. 7d, 30d)" Type="Variable" Display="advanced" Required="false" Mask="false">7d</Config>
 
-# Nur Production-Dependencies installieren
-RUN pnpm --filter @ts6/backend --prod deploy /app/backend-prod
+  <!-- Port -->
+  <Config Name="WebUI Port" Target="80" Default="3000" Mode="tcp" Description="Port für das TS6 Manager Web-Interface" Type="Port" Display="always" Required="true" Mask="false">3000</Config>
 
-# ── Stage 2: Combined Runtime ────────────────────────────────
-FROM node:20-slim AS production
-
-# System-Tools: nginx, supervisord, ffmpeg, yt-dlp, openssl
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    nginx \
-    supervisor \
-    ffmpeg \
-    python3 \
-    python3-pip \
-    curl \
-    openssl \
-    && pip3 install --break-system-packages yt-dlp \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-# Prisma CLI braucht Node im PATH (bereits vorhanden durch node:20-slim)
-
-# ── Frontend ────────────────────────────────────────────────
-COPY --from=build /app/packages/frontend/dist /usr/share/nginx/html
-
-# nginx Konfiguration: SPA Routing + API Proxy zum internen Backend
-RUN printf 'server {\n\
-    listen 80;\n\
-    server_name _;\n\
-    root /usr/share/nginx/html;\n\
-    index index.html;\n\
-\n\
-    client_max_body_size 150m;\n\
-\n\
-    # API & WebSocket -> internes Backend\n\
-    location /api {\n\
-        proxy_pass http://127.0.0.1:3001;\n\
-        proxy_http_version 1.1;\n\
-        proxy_set_header Upgrade $http_upgrade;\n\
-        proxy_set_header Connection "upgrade";\n\
-        proxy_set_header Host $host;\n\
-        proxy_set_header X-Real-IP $remote_addr;\n\
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n\
-        proxy_read_timeout 120s;\n\
-    }\n\
-\n\
-    location /socket.io {\n\
-        proxy_pass http://127.0.0.1:3001;\n\
-        proxy_http_version 1.1;\n\
-        proxy_set_header Upgrade $http_upgrade;\n\
-        proxy_set_header Connection "upgrade";\n\
-        proxy_set_header Host $host;\n\
-    }\n\
-\n\
-    location /widget {\n\
-        proxy_pass http://127.0.0.1:3001;\n\
-        proxy_http_version 1.1;\n\
-        proxy_set_header Host $host;\n\
-    }\n\
-\n\
-    # SPA Fallback\n\
-    location / {\n\
-        try_files $uri $uri/ /index.html;\n\
-    }\n\
-}\n' > /etc/nginx/sites-available/default
-
-# ── Backend ──────────────────────────────────────────────────
-WORKDIR /app
-
-# Production-Build des Backends
-COPY --from=build /app/backend-prod ./
-COPY --from=build /app/packages/backend/prisma ./prisma/
-
-# Prisma Client generieren
-RUN npx prisma generate
-
-# Startup-Script: Migrations + Backend starten
-RUN printf '#!/bin/sh\n\
-set -e\n\
-echo "[startup] Running Prisma migrations..."\n\
-npx prisma migrate deploy\n\
-echo "[startup] Starting backend..."\n\
-exec node dist/index.js\n' > /app/start-backend.sh && chmod +x /app/start-backend.sh
-
-# ── Supervisord Konfiguration ────────────────────────────────
-RUN printf '[supervisord]\n\
-nodaemon=true\n\
-logfile=/var/log/supervisor/supervisord.log\n\
-pidfile=/var/run/supervisord.pid\n\
-\n\
-[program:nginx]\n\
-command=nginx -g "daemon off;"\n\
-autostart=true\n\
-autorestart=true\n\
-stdout_logfile=/dev/stdout\n\
-stdout_logfile_maxbytes=0\n\
-stderr_logfile=/dev/stderr\n\
-stderr_logfile_maxbytes=0\n\
-priority=10\n\
-\n\
-[program:backend]\n\
-command=/app/start-backend.sh\n\
-directory=/app\n\
-autostart=true\n\
-autorestart=true\n\
-stdout_logfile=/dev/stdout\n\
-stdout_logfile_maxbytes=0\n\
-stderr_logfile=/dev/stderr\n\
-stderr_logfile_maxbytes=0\n\
-priority=20\n\
-environment=NODE_ENV="production"\n' > /etc/supervisor/conf.d/ts6manager.conf
-
-# Supervisor Log-Verzeichnis
-RUN mkdir -p /var/log/supervisor
-
-# ── Volumes ──────────────────────────────────────────────────
-# Daten (SQLite DB + Musik) werden extern gemountet
-VOLUME ["/data", "/data/music"]
-
-# Prisma DB auf /data zeigen (wird zur Laufzeit gesetzt)
-ENV DATABASE_URL="file:/data/ts6webui.db"
-ENV MUSIC_DIR="/data/music"
-ENV PORT=3001
-ENV NODE_ENV=production
-ENV FRONTEND_URL="http://localhost:3000"
-
-# ── Ports ────────────────────────────────────────────────────
-EXPOSE 80
-
-# ── Entrypoint ───────────────────────────────────────────────
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf"]
+  <!-- Volumes -->
+  <Config Name="Daten-Verzeichnis" Target="/data" Default="/mnt/user/appdata/ts6-manager/data" Mode="rw" Description="Speichert die SQLite-Datenbank und Musik-Dateien" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/ts6-manager/data</Config>
+</Container>
