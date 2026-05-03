@@ -21,6 +21,17 @@ RUN pnpm --filter @ts6/backend run build
 # Nur Production-Dependencies installieren
 RUN pnpm --filter @ts6/backend --prod deploy /app/backend-prod
 
+# pnpm deploy legt prisma oft ohne CLI-Build ab (kein build/index.js).
+# Vollständiges prisma-Paket aus dem normalen node_modules-Baum (pnpm store) kopieren.
+RUN set -e; \
+  PRISMA_PKG="$(find /app -path '*/node_modules/prisma/package.json' -type f ! -path '/app/backend-prod/*' | head -n1)"; \
+  test -n "$PRISMA_PKG"; \
+  PRISMA_ROOT="$(dirname "$PRISMA_PKG")"; \
+  test -f "$PRISMA_ROOT/build/index.js"; \
+  mkdir -p /prisma-cli-bundle; \
+  cp -a "$PRISMA_ROOT" /prisma-cli-bundle/prisma; \
+  test -f /prisma-cli-bundle/prisma/build/index.js
+
 # ── Stage 2: Combined Runtime ────────────────────────────────
 FROM node:20-slim AS production
 
@@ -88,14 +99,22 @@ WORKDIR /app
 
 # Production-Build des Backends
 COPY --from=build /app/backend-prod ./
+# Vollständige Prisma-CLI (siehe Build-Stage)
+COPY --from=build /prisma-cli-bundle/prisma ./node_modules/prisma/
 COPY --from=build /app/packages/backend/prisma ./prisma/
 COPY --from=build /app/packages/backend/generated ./generated/
 
-# migrate: pnpm deploy legt oft kein node_modules/.bin/prisma an → CLI direkt per Node
+RUN test -f ./node_modules/prisma/build/index.js
+
+# Ohne prisma/migrations schlägt migrate deploy fehl → db push (Schema → SQLite)
 RUN printf '#!/bin/sh\n\
 set -e\n\
-echo "[startup] Running Prisma migrations..."\n\
-node ./node_modules/prisma/build/index.js migrate deploy\n\
+echo "[startup] Applying database schema..."\n\
+if [ -d prisma/migrations ] && [ -n "$(ls -A prisma/migrations 2>/dev/null)" ]; then\n\
+  node ./node_modules/prisma/build/index.js migrate deploy\n\
+else\n\
+  node ./node_modules/prisma/build/index.js db push\n\
+fi\n\
 echo "[startup] Starting backend..."\n\
 exec node dist/index.js\n' > /app/start-backend.sh && chmod +x /app/start-backend.sh
 
