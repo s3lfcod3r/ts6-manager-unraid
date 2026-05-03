@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>ts6-manager-backend</Name>
+  <Repository>ghcr.io/kabelsalatundklartext/ts6-manager-backend:latest</Repository>
+  <Registry>https://ghcr.io</Registry>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/kabelsalatundklartext/ts6-manager</Support>
+  <Project>https://github.com/clusterzx/ts6-manager</Project>
+  <Overview>TS6 Manager Backend – Web-based management interface for TeamSpeak 6 servers. Requires Frontend container.</Overview>
+  <Category>GameServers: Tools:</Category>
+  <WebUI/>
+  <TemplateURL>https://raw.githubusercontent.com/kabelsalatundklartext/ts6-manager/main/unraid/ts6-manager-backend.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/clusterzx/ts6-manager/main/docs/dashboard.png</Icon>
+  <ExtraParams>--restart unless-stopped</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires>ts6-manager-frontend container must also be running</Requires>
+
+  <!-- Environment Variables -->
+  <Config Name="JWT Secret" Target="JWT_SECRET" Default="" Mode="" Description="Required: Random secret for JWT token signing (min 32 chars). Generate with: openssl rand -base64 32" Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="Encryption Key" Target="ENCRYPTION_KEY" Default="" Mode="" Description="Optional but recommended: AES-256-GCM key for credential encryption. Generate with: openssl rand -base64 32" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="Frontend URL" Target="FRONTEND_URL" Default="http://localhost:3000" Mode="" Description="URL where the frontend is reachable (used for CORS)" Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Backend Port" Target="PORT" Default="3001" Mode="" Description="Internal port the backend listens on" Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+
+  <!-- Volumes -->
+  <Config Name="Data Directory" Target="/data" Default="/mnt/user/appdata/ts6-manager/data" Mode="rw" Description="Stores SQLite database and music files" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/ts6-manager/data</Config>
+
+  <!-- Network -->
+  <Config Name="Backend Port (internal)" Target="3001" Default="3001" Mode="tcp" Description="Backend API port – only needs to be reachable by the frontend container" Type="Port" Display="advanced" Required="false" Mask="false">3001</Config>
+</Container>
