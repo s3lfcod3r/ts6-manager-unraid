@@ -21,21 +21,16 @@ RUN pnpm --filter @ts6/backend run build
 # Nur Production-Dependencies installieren
 RUN pnpm --filter @ts6/backend --prod deploy /app/backend-prod
 
-# pnpm deploy legt prisma oft unvollständig ab. CLI braucht prisma + @prisma/* (engines, fetch-engine, debug, …).
-RUN set -e; \
-  PRISMA_PKG="$(find /app -path '*/node_modules/prisma/package.json' -type f ! -path '/app/backend-prod/*' | head -n1)"; \
-  test -n "$PRISMA_PKG"; \
-  PRISMA_ROOT="$(dirname "$PRISMA_PKG")"; \
-  test -f "$PRISMA_ROOT/build/index.js"; \
-  ENGINES_PKG="$(find /app -path '*/node_modules/@prisma/engines/package.json' -type f ! -path '/app/backend-prod/*' | head -n1)"; \
-  test -n "$ENGINES_PKG"; \
-  AT_PRISMA="$(dirname "$(dirname "$ENGINES_PKG")")"; \
-  test -d "$AT_PRISMA/engines"; \
-  mkdir -p /prisma-cli-bundle/prisma /prisma-cli-bundle/extra-atprisma; \
-  cp -a "$PRISMA_ROOT/." /prisma-cli-bundle/prisma/; \
-  cp -a "$AT_PRISMA/." /prisma-cli-bundle/extra-atprisma/; \
-  test -f /prisma-cli-bundle/prisma/build/index.js; \
-  test -f /prisma-cli-bundle/extra-atprisma/engines/package.json
+# Prisma-CLI inkl. @prisma/debug usw.: pnpm legt @prisma-Pakete verstreut; npm liefert ein flaches, vollständiges node_modules.
+RUN mkdir -p /prisma-standalone && cd /prisma-standalone \
+  && npm init -y >/dev/null 2>&1 \
+  && npm install prisma@6.3.0 --omit=dev --no-package-lock \
+  && mkdir -p /prisma-cli-bundle/prisma /prisma-cli-bundle/extra-atprisma \
+  && cp -a node_modules/prisma/. /prisma-cli-bundle/prisma/ \
+  && cp -a node_modules/@prisma/. /prisma-cli-bundle/extra-atprisma/ \
+  && test -f /prisma-cli-bundle/prisma/build/index.js \
+  && test -f /prisma-cli-bundle/extra-atprisma/debug/package.json \
+  && test -f /prisma-cli-bundle/extra-atprisma/engines/package.json
 
 # ── Stage 2: Combined Runtime ────────────────────────────────
 FROM node:20-slim AS production
@@ -110,7 +105,9 @@ COPY --from=build /prisma-cli-bundle/extra-atprisma/ ./node_modules/@prisma/
 COPY --from=build /app/packages/backend/prisma ./prisma/
 COPY --from=build /app/packages/backend/generated ./generated/
 
-RUN test -f ./node_modules/prisma/build/index.js && test -f ./node_modules/@prisma/engines/package.json
+RUN test -f ./node_modules/prisma/build/index.js \
+  && test -f ./node_modules/@prisma/debug/package.json \
+  && test -f ./node_modules/@prisma/engines/package.json
 
 # Ohne prisma/migrations schlägt migrate deploy fehl → db push (Schema → SQLite)
 RUN printf '#!/bin/sh\n\
