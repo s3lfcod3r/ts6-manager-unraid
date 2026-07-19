@@ -85,8 +85,8 @@ jobs:
           file: upstream/Dockerfile.unraid
           push: true
           tags: |
-            ghcr.io/kabelsalatundklartext/ts6-manager:latest
-            ghcr.io/kabelsalatundklartext/ts6-manager:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/ts6-manager:latest
+            ghcr.io/${{ github.repository_owner }}/ts6-manager:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -97,8 +97,8 @@ jobs:
           set -euo pipefail
           echo "${{ steps.upstream-check.outputs.upstream_sha }}" > myrepo/.last_upstream_sha
           cd myrepo
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "s3lfcod3r"
+          git config user.email "info@selfcoder.de"
           git add .last_upstream_sha
           git commit -m "chore(ci): track last upstream sha" || exit 0
           git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
