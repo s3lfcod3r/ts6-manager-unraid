@@ -1,17 +1,17 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>ts6-manager</Name>
-  <Repository>ghcr.io/kabelsalatundklartext/ts6-manager:latest</Repository>
+  <Repository>ghcr.io/s3lfcod3r/ts6-manager:latest</Repository>
   <Registry>https://ghcr.io</Registry>
   <Network>bridge</Network>
   <Shell>sh</Shell>
   <Privileged>false</Privileged>
-  <Support>https://github.com/kabelsalatundklartext/ts6-manager-unraid</Support>
+  <Support>https://github.com/s3lfcod3r/ts6-manager-unraid</Support>
   <Project>https://github.com/clusterzx/ts6-manager</Project>
   <Overview>TS6 Manager – Web-based management interface for TeamSpeak 6 servers. Frontend und Backend in einem einzigen Container. Nach dem Start: http://UNRAID-IP:3000/setup aufrufen und Admin-Account anlegen.</Overview>
   <Category>GameServers: Tools:</Category>
   <WebUI>http://[IP]:[PORT:3000]/</WebUI>
-  <TemplateURL>https://raw.githubusercontent.com/kabelsalatundklartext/ts6-manager-unraid/main/unraid/ts6-manager.xml</TemplateURL>
+  <TemplateURL>https://raw.githubusercontent.com/s3lfcod3r/ts6-manager-unraid/main/unraid/ts6-manager.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/clusterzx/ts6-manager/main/docs/dashboard.png</Icon>
   <ExtraParams>--restart unless-stopped</ExtraParams>
   <PostArgs/>

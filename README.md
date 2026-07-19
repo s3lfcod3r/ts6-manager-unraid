@@ -1,3 +1,23 @@
+> ### ℹ️ Unraid-Variante / Unraid variant
+>
+> **DE —** Dies ist **nicht** das Originalprojekt, sondern eine Unraid-Anpassung davon.
+> Das ursprüngliche Werk **TS6 Manager** stammt von **[clusterzx](https://github.com/clusterzx)**
+> und liegt unter **[clusterzx/ts6-manager](https://github.com/clusterzx/ts6-manager)** (MIT-Lizenz).
+> Dieses Repository ergänzt lediglich ein Single-Container-`Dockerfile.unraid`, ein Unraid-Template
+> und einen Workflow, der das Image bei Änderungen am Original automatisch neu baut.
+> Es wird **keine eigene Urheberschaft** am TS6 Manager beansprucht.
+>
+> **EN —** This is **not** the original project but an Unraid adaptation of it.
+> The original **TS6 Manager** is by **[clusterzx](https://github.com/clusterzx)** at
+> **[clusterzx/ts6-manager](https://github.com/clusterzx/ts6-manager)** (MIT licensed).
+> This repository only adds a single-container `Dockerfile.unraid`, an Unraid template and a
+> workflow that rebuilds the image whenever upstream changes.
+> **No authorship of TS6 Manager itself is claimed here.**
+>
+> Der nachfolgende Text ist die README des Originalprojekts. / The text below is the upstream README.
+
+---
+
 #### DISCLAIMER: 
 ![AI Assisted](https://img.shields.io/badge/AI%20Assisted-Project-00ADD8?style=for-the-badge&logo=dependabot&logoColor=white)
 
