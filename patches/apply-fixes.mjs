@@ -129,6 +129,95 @@ const KORREKTUREN = [
     suchen: /cfg\.channel_flag_temporary = '0'; cfg\.channel_flag_semi_permanent = '1';/,
     ersetzen: "cfg.channel_flag_temporary = '0'; delete cfg.channel_flag_semi_permanent;",
   },
+  {
+    datei: RUNNER,
+    titel: 'AFK Mover achtet auf Stummschaltung und holt zurueck',
+    // Ein ServerQuery bekommt kein Mute-Ereignis - SinusBot kann das nur, weil es sich
+    // als echter Sprachclient anmeldet. Der Zustand steht aber in der Clientliste
+    // (-voice). Wer laenger als die Schwelle stumm ist, wird in den AFK-Channel
+    // geschoben; wer sich wieder entmutet, kommt in seinen alten Channel zurueck.
+    fertig: /afkReturnedCount/,
+    suchen: /const clients = await client\.executePost\(ctx\.sid, 'clientlist', \{ '-times': '', '-groups': '' \}\);[\s\S]*?ctx\.setTemp\('afkMovedCount', movedCount\);/,
+    ersetzen: `const clients = await client.executePost(ctx.sid, 'clientlist', { '-times': '', '-groups': '', '-voice': '' });
+    if (!Array.isArray(clients)) return;
+
+    const jetzt = Date.now();
+    let movedCount = 0;
+    let zurueckCount = 0;
+
+    for (const cl of clients) {
+      if (String(cl.client_type) === '1') continue;
+
+      const wer = String(cl.client_database_id || cl.clid);
+      const stummSeit = \`mutedsince_\${wer}\`;
+      const herkunft = \`afkfrom_\${wer}\`;
+
+      const istStumm = String(cl.client_input_muted) === '1' || String(cl.client_output_muted) === '1';
+      const leerlaufSek = (parseInt(cl.client_idle_time) || 0) / 1000;
+
+      // Ausgenommene Gruppen bleiben unangetastet
+      if (exemptIds.length > 0 && cl.client_servergroups) {
+        const gruppen = String(cl.client_servergroups).split(',');
+        if (exemptIds.some(g => gruppen.includes(g))) continue;
+      }
+
+      // Sitzt bereits im AFK-Channel: zurueckholen, sobald wieder aktiv
+      if (String(cl.cid) === String(afkCid)) {
+        if (!istStumm && leerlaufSek < thresholdSec) {
+          const zurueck = await ctx.getVariable(herkunft);
+          if (zurueck) {
+            try {
+              await client.executePost(ctx.sid, 'clientmove', { clid: cl.clid, cid: zurueck });
+              zurueckCount++;
+            } catch { /* Channel gibt es nicht mehr */ }
+          }
+          await ctx.setVariable(herkunft, '');
+          await ctx.setVariable(stummSeit, '');
+        }
+        continue;
+      }
+
+      // Ausserhalb des AFK-Channels
+      if (!istStumm) {
+        if (await ctx.getVariable(stummSeit)) await ctx.setVariable(stummSeit, '');
+        if (leerlaufSek < thresholdSec) continue;
+      } else {
+        const seit = parseFloat(await ctx.getVariable(stummSeit)) || 0;
+        if (!seit) { await ctx.setVariable(stummSeit, String(jetzt)); continue; }
+        if ((jetzt - seit) / 1000 < thresholdSec) continue;
+      }
+
+      try {
+        await ctx.setVariable(herkunft, String(cl.cid));
+        await client.executePost(ctx.sid, 'clientmove', { clid: cl.clid, cid: afkCid });
+        movedCount++;
+      } catch { /* skip clients that can't be moved */ }
+    }
+
+    ctx.setTemp('afkMovedCount', movedCount);
+    ctx.setTemp('afkReturnedCount', zurueckCount);`,
+  },
+  {
+    datei: RUNNER,
+    titel: 'Rank Check sammelt die Online-Zeit wirklich',
+    // Das Original liest onlinetime_<cldbid>, schreibt es aber nirgends. Der Kommentar
+    // "accumulate via cron" beschreibt einen Sammler, den es nicht gibt - gezaehlt wurde
+    // deshalb immer nur die laufende Sitzung. Jetzt wird der Zuwachs seit dem letzten
+    // Lauf dazuaddiert und gespeichert; nach einem Neuverbinden faengt die
+    // Verbindungszeit wieder bei 0 an, das faengt der Vergleich ab.
+    fertig: /lastseen_\$\{cldbid\}/,
+    suchen: /\/\/ Get total online time from BotVariable[\s\S]*?const totalHours = totalSeconds \/ 3600;/,
+    ersetzen: `const varName = \`onlinetime_\${cldbid}\`;
+      const merkName = \`lastseen_\${cldbid}\`;
+      const gespeichert = parseFloat(await ctx.getVariable(varName)) || 0;
+      const jetztVerbunden = (parseInt(cl.connection_connected_time) || 0) / 1000;
+      const zuletzt = parseFloat(await ctx.getVariable(merkName)) || 0;
+      const zuwachs = jetztVerbunden >= zuletzt ? jetztVerbunden - zuletzt : jetztVerbunden;
+      const totalSeconds = gespeichert + zuwachs;
+      await ctx.setVariable(varName, String(totalSeconds));
+      await ctx.setVariable(merkName, String(jetztVerbunden));
+      const totalHours = totalSeconds / 3600;`,
+  },
 ];
 
 let fehlgeschlagen = 0;

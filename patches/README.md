@@ -76,6 +76,36 @@ Rechenarten.
 
 Gegenstück zu Korrektur 1 auf der Oberflächenseite.
 
+
+### 7. AFK Mover kennt keine Stummschaltung und holt niemanden zurueck
+
+`packages/backend/src/bot-engine/flow-runner.ts`
+
+Der eingebaute AFK Mover prueft nur `client_idle_time` und schiebt in eine Richtung.
+Ein Mute-Ereignis bekommt ein ServerQuery nie — SinusBot kann das nur, weil es sich als
+echter Sprachclient anmeldet. Der Zustand steht aber in der Clientliste:
+
+```
+client_input_muted  = 0/1
+client_output_muted = 0/1
+```
+
+Nach der Korrektur wird `-voice` mit abgefragt, wer laenger als die Schwelle stumm ist
+wandert in den AFK-Channel, und wer sich wieder entmutet, kommt in seinen alten Channel
+zurueck. Der Herkunfts-Channel wird pro Client in einer Flow-Variablen gemerkt.
+
+### 8. Rank Check sammelt die Online-Zeit nie
+
+`packages/backend/src/bot-engine/flow-runner.ts`
+
+Das Original liest `onlinetime_<cldbid>`, schreibt es aber nirgends — der Kommentar
+"accumulate via cron" beschreibt einen Sammler, den es im ganzen Projekt nicht gibt.
+Gezaehlt wurde deshalb immer nur die laufende Sitzung: Wer sich neu verbindet, faengt
+wieder bei null an.
+
+Nach der Korrektur wird bei jedem Lauf der Zuwachs seit dem letzten Lauf dazuaddiert
+und gespeichert. Ein Neuverbinden faengt der Vergleich ab.
+
 ## Nebenbei: ServerQuery-Flood-Grenzen
 
 Kein Programmfehler, aber der häufigste Grund für `socket hang up`: Der TeamSpeak-Server
