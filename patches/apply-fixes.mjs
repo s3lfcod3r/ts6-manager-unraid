@@ -104,6 +104,26 @@ const KORREKTUREN = [
   },
   {
     datei: EDITOR,
+    titel: 'Set Variable bekommt einen Waehler fuer die Rechenart',
+    // Das Backend kennt set, increment und append. Die Oberflaeche bot nichts davon
+    // an, also stand operation immer auf 'set' - ein Zaehler war damit unerreichbar.
+    fertig: /SelectItem value="increment"/,
+    suchen: /(\{selectedNodeData\.type === 'variable' && \(\s*<div className="space-y-2">\s*)(<div>\s*<Label className="text-\[10px\] text-muted-foreground">Variable Name<\/Label>)/,
+    ersetzen: `$1<div>
+                        <Label className="text-[10px] text-muted-foreground">Operation</Label>
+                        <Select value={selectedNodeData.config.operation || 'set'} onValueChange={(v) => setNodes((prev) => prev.map((n) => n.id === selectedNode ? { ...n, config: { ...n.config, operation: v } } : n))}>
+                          <SelectTrigger className="h-7 text-xs mt-1"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="set">Set</SelectItem>
+                            <SelectItem value="increment">Increment</SelectItem>
+                            <SelectItem value="append">Append</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      $2`,
+  },
+  {
+    datei: EDITOR,
     titel: 'Auswahl "Permanent" schreibt kein semi-permanent mehr',
     fertig: /cfg\.channel_flag_temporary = '0'; delete cfg\.channel_flag_semi_permanent;/,
     suchen: /cfg\.channel_flag_temporary = '0'; cfg\.channel_flag_semi_permanent = '1';/,
