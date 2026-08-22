@@ -1,6 +1,14 @@
 name: Sync Upstream & Build Docker
 
 on:
+  # Eigene Aenderungen sollen sofort ein neues Image ergeben - sonst merkt man
+  # erst Stunden spaeter (oder nie), dass eine Korrektur noch gar nicht drin ist.
+  push:
+    branches: [main]
+    paths:
+      - 'patches/**'
+      - 'Dockerfile.unraid'
+      - '.github/workflows/sync-upstream.yml'
   schedule:
     - cron: '0 */6 * * *'
   workflow_dispatch:
@@ -61,13 +69,26 @@ jobs:
             echo "No upstream changes detected."
           fi
 
+          # Gebaut wird bei drei Anlaessen: das Original hat sich geaendert,
+          # es wurde etwas Eigenes nach main geschoben (Patches, Dockerfile),
+          # oder jemand hat den Bau von Hand mit force_build angestossen.
+          if [[ "$upstream_sha" != "$previous_sha" \
+                || "${{ github.event_name }}" == "push" \
+                || "${{ github.event.inputs.force_build }}" == "true" ]]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "Grund zum Bauen liegt vor."
+          else
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "Kein Grund zum Bauen."
+          fi
+
       - name: Copy Dockerfile.unraid into upstream source
-        if: steps.upstream-check.outputs.changed == 'true' || github.event_name == 'workflow_dispatch' && github.event.inputs.force_build == 'true'
+        if: steps.upstream-check.outputs.build == 'true'
         run: |
           cp myrepo/Dockerfile.unraid upstream/Dockerfile.unraid
 
       - name: Apply local fixes to upstream source
-        if: steps.upstream-check.outputs.changed == 'true' || github.event_name == 'workflow_dispatch' && github.event.inputs.force_build == 'true'
+        if: steps.upstream-check.outputs.build == 'true'
         run: node myrepo/patches/apply-fixes.mjs upstream
 
       - name: Log in to GitHub Container Registry
@@ -78,11 +99,11 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        if: steps.upstream-check.outputs.changed == 'true' || github.event_name == 'workflow_dispatch' && github.event.inputs.force_build == 'true'
+        if: steps.upstream-check.outputs.build == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Build and push – Single Container
-        if: steps.upstream-check.outputs.changed == 'true' || github.event_name == 'workflow_dispatch' && github.event.inputs.force_build == 'true'
+        if: steps.upstream-check.outputs.build == 'true'
         uses: docker/build-push-action@v5
         with:
           context: upstream
