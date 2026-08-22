@@ -58,7 +58,19 @@ Abfrage mit `TSApiError: socket hang up` fehl, bis der Container neu startet.
 
 Nach der Korrektur wird eine abgerissene Verbindung genau einmal neu aufgebaut.
 
-### 5. Auswahl „Permanent" schreibt kein semi-permanent mehr
+### 5. `Set Variable` hat keinen Wähler für die Rechenart
+
+`packages/frontend/src/pages/BotEditor.tsx`
+
+Das Backend kennt `set`, `increment` und `append`. Die Oberfläche zeigt nur
+*Variable Name* und *Value*, `operation` stand dadurch immer auf `set`. Ein Zähler
+war damit unerreichbar — und ohne Zähler lässt sich in der Flow-Engine nichts
+bauen, das hochzählen muss.
+
+Nach der Korrektur gibt es ein Auswahlfeld **Operation** mit allen drei
+Rechenarten.
+
+### 6. Auswahl „Permanent" schreibt kein semi-permanent mehr
 
 `packages/frontend/src/pages/BotEditor.tsx`
 
