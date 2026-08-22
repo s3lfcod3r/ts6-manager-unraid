@@ -1,0 +1,157 @@
+#!/usr/bin/env node
+/**
+ * Korrekturen am Quelltext von clusterzx/ts6-manager, bevor das Image gebaut wird.
+ *
+ * Der Bau holt das Original bei jedem Lauf frisch. Die Korrekturen duerfen deshalb
+ * nicht im Repo als geaenderte Quelldateien liegen - sie werden hier auf den frisch
+ * geklonten Baum angewendet. So ueberlebt jede Korrektur die Synchronisierung.
+ *
+ * Aufruf:  node patches/apply-fixes.mjs <pfad-zum-upstream-baum>
+ *
+ * Bricht mit Rueckgabewert 1 ab, sobald eine Fundstelle nicht mehr passt. Das ist
+ * Absicht: lieber ein roter Bau als ein Image, in dem still eine Korrektur fehlt.
+ */
+
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+
+const wurzel = process.argv[2];
+if (!wurzel) {
+  console.error('Aufruf: node patches/apply-fixes.mjs <pfad-zum-upstream-baum>');
+  process.exit(1);
+}
+
+const ENGINE = 'packages/backend/src/bot-engine/engine.ts';
+const RUNNER = 'packages/backend/src/bot-engine/flow-runner.ts';
+const CLIENT = 'packages/backend/src/ts-client/webquery-client.ts';
+const EDITOR = 'packages/frontend/src/pages/BotEditor.tsx';
+
+/**
+ * Eine Korrektur.
+ *  titel    – erscheint im Bauprotokoll
+ *  fertig   – trifft zu, wenn die Korrektur bereits drin ist (Original hat sie behoben)
+ *  suchen   – Fundstelle im Original
+ *  ersetzen – Ersatz
+ */
+const KORREKTUREN = [
+  {
+    datei: ENGINE,
+    titel: 'Create Channel legt einen dauerhaften Channel an',
+    // Die Oberflaeche bietet nur "Permanent" und "Temporary" an, schreibt bei
+    // "Permanent" aber channel_flag_semi_permanent=1. TeamSpeak loescht solche
+    // Channels, sobald der letzte Client geht - Auto-Channels werden dadurch
+    // endlos neu erzeugt. Ohne jedes Flag ist der Channel ebenfalls temporaer,
+    // entgegen dem Kommentar im Original.
+    fertig: /params\.channel_flag_permanent\s*=\s*'1'/,
+    suchen: /\}\s*else if \(semi === '1'\) \{\s*params\.channel_flag_semi_permanent = '1';\s*\}/,
+    ersetzen: `} else {
+        // Korrektur: ohne dieses Flag legt TeamSpeak einen temporaeren Channel an.
+        params.channel_flag_permanent = '1';
+      }`,
+  },
+  {
+    datei: ENGINE,
+    titel: 'Set Variable liest den Namen, den die Oberflaeche schreibt',
+    // Oberflaeche speichert varName/varValue, das Backend las name/value.
+    // Der Knoten legte dadurch immer eine leere Variable an.
+    fertig: /variableName:\s*config\.varName/,
+    suchen: /variableName:\s*config\.name\s*\|\|\s*''/,
+    ersetzen: "variableName: config.varName || config.name || ''",
+  },
+  {
+    datei: ENGINE,
+    titel: 'Set Variable liest den Wert, den die Oberflaeche schreibt',
+    fertig: /value:\s*config\.varValue/,
+    suchen: /value:\s*config\.value\s*\|\|\s*''/,
+    ersetzen: "value: config.varValue || config.value || ''",
+  },
+  {
+    datei: RUNNER,
+    titel: 'Store As behaelt auch Einzelergebnisse (z. B. whoami)',
+    // Bisher wurde immer result[0] abgelegt. Befehle, die ein einzelnes Objekt
+    // liefern, kamen dadurch nie an. Arrays verhalten sich unveraendert.
+    fertig: /Array\.isArray\(result\)\s*\?\s*result\[0\]\s*:\s*result/,
+    suchen: /if \(data\.storeAs && result\?\.\[0\]\) \{\s*ctx\.setTemp\(data\.storeAs, result\[0\]\);/,
+    ersetzen: `if (data.storeAs && result) {
+      ctx.setTemp(data.storeAs, Array.isArray(result) ? result[0] : result);`,
+  },
+  {
+    datei: CLIENT,
+    titel: 'WebQuery wiederholt einmal bei abgerissener Verbindung',
+    // Der Client haelt eine einzige dauerhafte Verbindung (keepAlive, maxSockets 1).
+    // Wirft der TeamSpeak-Server sie weg - etwa nach einer Flood-Sperre oder weil
+    // der Socket veraltet ist - schlaegt jede Abfrage mit "socket hang up" fehl,
+    // ohne dass es je einen zweiten Versuch gaebe.
+    fertig: /__ts6Wiederholung/,
+    suchen: /(httpsAgent: useHttps \? this\.agent : undefined,\s*\}\);)/,
+    ersetzen: `$1
+
+    // Korrektur: eine abgerissene Verbindung einmal neu aufbauen, statt die
+    // Abfrage sofort als "socket hang up" durchfallen zu lassen.
+    this.http.interceptors.response.use(undefined, async (error: any) => {
+      const anfrage = error?.config;
+      const abgerissen = !error?.response && (
+        ['ECONNRESET', 'EPIPE', 'ECONNABORTED', 'ETIMEDOUT'].includes(error?.code) ||
+        /socket hang up/i.test(String(error?.message || ''))
+      );
+      if (anfrage && abgerissen && !anfrage.__ts6Wiederholung) {
+        anfrage.__ts6Wiederholung = true;
+        await new Promise((fertig) => setTimeout(fertig, 400));
+        return this.http.request(anfrage);
+      }
+      return Promise.reject(error);
+    });`,
+  },
+  {
+    datei: EDITOR,
+    titel: 'Auswahl "Permanent" schreibt kein semi-permanent mehr',
+    fertig: /cfg\.channel_flag_temporary = '0'; delete cfg\.channel_flag_semi_permanent;/,
+    suchen: /cfg\.channel_flag_temporary = '0'; cfg\.channel_flag_semi_permanent = '1';/,
+    ersetzen: "cfg.channel_flag_temporary = '0'; delete cfg.channel_flag_semi_permanent;",
+  },
+];
+
+let fehlgeschlagen = 0;
+let angewendet = 0;
+let uebersprungen = 0;
+
+for (const k of KORREKTUREN) {
+  const pfad = join(wurzel, k.datei);
+
+  if (!existsSync(pfad)) {
+    console.log(`FEHLT     ${k.datei}`);
+    fehlgeschlagen++;
+    continue;
+  }
+
+  const vorher = readFileSync(pfad, 'utf8');
+
+  if (k.fertig.test(vorher)) {
+    console.log(`schon ok  ${k.titel}`);
+    uebersprungen++;
+    continue;
+  }
+
+  const nachher = vorher.replace(k.suchen, k.ersetzen);
+
+  if (nachher === vorher) {
+    console.log(`FEHLER    ${k.titel}`);
+    console.log(`          Fundstelle in ${k.datei} nicht erkannt.`);
+    console.log('          Das Original hat sich vermutlich geaendert - Muster pruefen.');
+    fehlgeschlagen++;
+    continue;
+  }
+
+  writeFileSync(pfad, nachher);
+  console.log(`gesetzt   ${k.titel}`);
+  angewendet++;
+}
+
+console.log('');
+console.log(`${angewendet} angewendet, ${uebersprungen} bereits vorhanden, ${fehlgeschlagen} fehlgeschlagen.`);
+
+if (fehlgeschlagen > 0) {
+  console.error('');
+  console.error('Bau abgebrochen: mindestens eine Korrektur konnte nicht gesetzt werden.');
+  process.exit(1);
+}
