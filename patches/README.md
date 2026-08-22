@@ -106,6 +106,17 @@ wieder bei null an.
 Nach der Korrektur wird bei jedem Lauf der Zuwachs seit dem letzten Lauf dazuaddiert
 und gespeichert. Ein Neuverbinden faengt der Vergleich ab.
 
+
+### 9. Rank Check zieht die vorige Stufe nie ab
+
+`packages/backend/src/bot-engine/flow-runner.ts`
+
+Die Aktion fuegt eine Gruppe nur hinzu. Da "Guest" ueblicherweise die Standardgruppe
+ist, trug ein befoerderter Nutzer danach zwei Gruppen und zwei Symbole gleichzeitig.
+
+Nach der Korrektur werden beim Aufstieg die anderen konfigurierten Stufen und die
+Standardgruppe abgezogen — jeder traegt genau einen Rang.
+
 ## Nebenbei: ServerQuery-Flood-Grenzen
 
 Kein Programmfehler, aber der häufigste Grund für `socket hang up`: Der TeamSpeak-Server

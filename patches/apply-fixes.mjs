@@ -218,6 +218,43 @@ const KORREKTUREN = [
       await ctx.setVariable(merkName, String(jetztVerbunden));
       const totalHours = totalSeconds / 3600;`,
   },
+  {
+    datei: RUNNER,
+    titel: 'Rank Check zieht die vorige Stufe ab',
+    // Bisher wurde nur hinzugefuegt. Da "Guest" die Standardgruppe ist, trug ein
+    // befoerderter Nutzer danach zwei Gruppen und zwei Symbole gleichzeitig. Jetzt
+    // werden beim Aufstieg die anderen konfigurierten Stufen und die Standardgruppe
+    // abgezogen, damit jeder genau einen Rang traegt.
+    fertig: /Vorige Stufe und Standardgruppe abziehen/,
+    suchen: /for \(const rank of ranks\) \{\s*if \(totalHours >= rank\.hours && !clientGroups\.includes\(rank\.groupId\)\) \{\s*try \{\s*await client\.executePost\(ctx\.sid, 'servergroupaddclient', \{ sgid: rank\.groupId, cldbid \}\);\s*promoted\+\+;\s*\} catch \{ \/\* skip \*\/ \}\s*break; \/\/ Only assign highest eligible rank\s*\}\s*\}/,
+    ersetzen: `for (const rank of ranks) {
+        if (totalHours >= rank.hours && !clientGroups.includes(rank.groupId)) {
+          try {
+            await client.executePost(ctx.sid, 'servergroupaddclient', { sgid: rank.groupId, cldbid });
+            promoted++;
+
+            // Vorige Stufe und Standardgruppe abziehen, damit genau ein Rang bleibt
+            let standardGruppe = '';
+            try {
+              const si = await client.executePost(ctx.sid, 'serverinfo', {});
+              const eintrag = Array.isArray(si) ? si[0] : si;
+              standardGruppe = String(eintrag?.virtualserver_default_server_group || '');
+            } catch { /* ohne Standardgruppe weiter */ }
+
+            const abziehen = ranks.map(r => String(r.groupId)).filter(g => g !== String(rank.groupId));
+            if (standardGruppe && standardGruppe !== String(rank.groupId)) abziehen.push(standardGruppe);
+
+            for (const sgid of abziehen) {
+              if (!clientGroups.includes(sgid)) continue;
+              try {
+                await client.executePost(ctx.sid, 'servergroupdelclient', { sgid, cldbid });
+              } catch { /* war nicht drin */ }
+            }
+          } catch { /* skip */ }
+          break; // Only assign highest eligible rank
+        }
+      }`,
+  },
 ];
 
 let fehlgeschlagen = 0;
