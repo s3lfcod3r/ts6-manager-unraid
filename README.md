@@ -27,7 +27,7 @@ Web-based management interface for TeamSpeak servers. Control virtual servers, c
 
 Built on the **WebQuery HTTP API** (the ServerQuery replacement in modern TeamSpeak builds). Telnet is not used or supported.
 
-![License](https://img.shields.io/badge/license-MIT-blue)
+![License](https://img.shields.io/badge/license-MIT%20(upstream)%20%2B%20Unraid%20additions%3A%20all%20rights%20reserved-blue)
 
 ## Screenshots
 
@@ -304,4 +304,28 @@ When a music bot is connected to a channel, users in that channel can control it
 
 ## License
 
-MIT
+MIT (original TS6 Manager by clusterzx). Unraid additions: see below.
+
+---
+
+## ⚖️ Lizenz / License
+
+**🇩🇪 Alle Rechte vorbehalten.** © 2026 s3lfcod3r / SelfCoder
+
+Du darfst die Software **privat und nicht-kommerziell** installieren und benutzen (z. B. im Homelab, über Docker oder Unraid).
+
+**Ohne schriftliche Erlaubnis verboten:** kommerzielle Nutzung · Kopieren · Verändern · Weitergeben · Einbauen in eigene Projekte (auch Closed Source) · Verkaufen.
+
+Das gilt **nur für die Unraid-Ergänzungen** von s3lfcod3r. Der originale **TS6-Manager**-Code von [clusterzx](https://github.com/clusterzx/ts6-manager) bleibt unter seiner **MIT**-Lizenz.
+
+Details: [LICENSE](LICENSE)
+
+**🇬🇧 All rights reserved.** © 2026 s3lfcod3r / SelfCoder
+
+You may install and use the software **privately and non-commercially** (e.g. in your home lab, via Docker or Unraid).
+
+**Not permitted without written permission:** commercial use · copying · modifying · redistributing · incorporating into other projects (including closed source) · selling.
+
+This covers **only the Unraid additions** by s3lfcod3r. The original **TS6 Manager** code by [clusterzx](https://github.com/clusterzx/ts6-manager) stays under its **MIT** license.
+
+Details: [LICENSE](LICENSE)
