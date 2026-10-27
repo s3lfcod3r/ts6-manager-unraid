@@ -4,7 +4,7 @@
 *TS6 Manager als Single-Container für Unraid — wird automatisch neu gebaut, wenn sich das Original ändert.*
 
 [![Build](https://github.com/s3lfcod3r/ts6-manager-unraid/actions/workflows/sync-upstream.yml/badge.svg)](https://github.com/s3lfcod3r/ts6-manager-unraid/actions/workflows/sync-upstream.yml)
-![Version](https://img.shields.io/badge/version-1.0.0-33A78C)
+![Version](https://img.shields.io/badge/version-1.1.0-33A78C)
 [![License](https://img.shields.io/badge/license-MIT%20upstream%20%2B%20all%20rights%20reserved-8A9CAA)](LICENSE)
 ![Backend](https://img.shields.io/badge/backend-Node.js%20%2B%20Express-1F7763)
 ![Web](https://img.shields.io/badge/web-React%20%2B%20Vite-43D3AD)
@@ -102,6 +102,8 @@ What this repository adds on top of the original:
   7. **AFK mover** reacts to mute and moves users back
   8. **Rank check** really accumulates online time
   9. Rank check removes the previous rank
+  10. Bot expressions use the maintained `expr-eval-fork` (closes a critical code-execution hole)
+  11. Uploads use multer 2 (multer 1.x no longer gets security fixes)
 
 > **⚠️ Not in the Unraid image:** the Go **video sidecar** is not part of the single container — video streaming needs the upstream multi-container setup.
 
@@ -406,6 +408,8 @@ Was dieses Repository zum Original hinzufügt:
   7. **AFK-Mover** reagiert auf Stummschaltung und holt Nutzer zurück
   8. **Rank Check** sammelt die Online-Zeit wirklich
   9. Rank Check zieht die vorige Stufe ab
+  10. Bot-Ausdrücke nutzen den gepflegten `expr-eval-fork` (schließt eine kritische Lücke zur Code-Ausführung)
+  11. Uploads laufen über multer 2 (multer 1.x bekommt keine Sicherheitsfixes mehr)
 
 > **⚠️ Nicht im Unraid-Image:** Das Go-**Video-Sidecar** ist nicht Teil des Single-Containers — für Video-Streaming braucht es den Mehr-Container-Aufbau des Originals.
 

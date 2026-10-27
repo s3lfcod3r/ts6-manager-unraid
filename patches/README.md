@@ -117,6 +117,25 @@ ist, trug ein befoerderter Nutzer danach zwei Gruppen und zwei Symbole gleichzei
 Nach der Korrektur werden beim Aufstieg die anderen konfigurierten Stufen und die
 Standardgruppe abgezogen — jeder traegt genau einen Rang.
 
+### 10. Bot-Ausdrücke laufen über einen gepflegten Fork von expr-eval
+
+`packages/backend/package.json`, `packages/backend/src/bot-engine/context.ts`
+
+`expr-eval` 2.0.2 wird nicht mehr gepflegt und hat eine kritische Lücke ohne Fix:
+Über einen Ausdruck in einem Bot-Ablauf lässt sich Code auf dem Server ausführen.
+`expr-eval-fork` ist API-gleich und behebt das. Gegenprobe mit typischen
+Bedingungen (Vergleiche, `and`/`or`, `contains`, `split`, `in [...]`): gleiche
+Ergebnisse wie vorher.
+
+### 11. Uploads mit multer 2
+
+`packages/backend/package.json`
+
+multer 1.x bekommt keine Sicherheitsfixes mehr. Genutzt werden nur `diskStorage`,
+`memoryStorage`, `limits` und `fileFilter` — in 2.x unverändert. Gegenprobe mit der
+Konfiguration aus Musik-Upload und Einstellungen: erlaubte Datei, zu große Datei,
+falscher Dateityp und falsches Feld verhalten sich wie vorher.
+
 ## Nebenbei: ServerQuery-Flood-Grenzen
 
 Kein Programmfehler, aber der häufigste Grund für `socket hang up`: Der TeamSpeak-Server

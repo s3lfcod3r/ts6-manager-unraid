@@ -25,6 +25,8 @@ const ENGINE = 'packages/backend/src/bot-engine/engine.ts';
 const RUNNER = 'packages/backend/src/bot-engine/flow-runner.ts';
 const CLIENT = 'packages/backend/src/ts-client/webquery-client.ts';
 const EDITOR = 'packages/frontend/src/pages/BotEditor.tsx';
+const CONTEXT = 'packages/backend/src/bot-engine/context.ts';
+const BACKEND_PKG = 'packages/backend/package.json';
 
 /**
  * Eine Korrektur.
@@ -254,6 +256,32 @@ const KORREKTUREN = [
           break; // Only assign highest eligible rank
         }
       }`,
+  },
+  {
+    datei: BACKEND_PKG,
+    titel: 'expr-eval durch gepflegten Fork ersetzen (Sicherheitsluecke)',
+    // expr-eval 2.0.2 ist verwaist und hat eine kritische Luecke ohne Fix: Ausdruecke
+    // aus Bot-Ablaeufen koennen Code auf dem Server ausfuehren. expr-eval-fork ist
+    // API-gleich und behebt das; die Bot-Ausdruecke liefern dieselben Ergebnisse.
+    fertig: /"expr-eval-fork"/,
+    suchen: /"expr-eval":\s*"[^"]*"/,
+    ersetzen: '"expr-eval-fork": "^3.0.3"',
+  },
+  {
+    datei: CONTEXT,
+    titel: 'Bot-Ausdruecke nutzen expr-eval-fork',
+    fertig: /from 'expr-eval-fork'/,
+    suchen: /from 'expr-eval';/,
+    ersetzen: "from 'expr-eval-fork';",
+  },
+  {
+    datei: BACKEND_PKG,
+    titel: 'multer 2 fuer Uploads (Sicherheitsluecken in 1.x)',
+    // multer 1.x bekommt keine Fixes mehr (u. a. DoS beim Upload). Genutzt werden
+    // nur diskStorage, memoryStorage, limits und fileFilter - in 2.x unveraendert.
+    fertig: /"multer":\s*"\^?2\./,
+    suchen: /"multer":\s*"[^"]*"/,
+    ersetzen: '"multer": "^2.5.0"',
   },
 ];
 
