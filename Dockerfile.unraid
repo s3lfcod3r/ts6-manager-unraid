@@ -6,13 +6,16 @@
 # =============================================================
 
 # ── Stage 1: Build ──────────────────────────────────────────
-FROM node:20-slim AS base
+FROM node:22-slim AS base
 RUN corepack enable && corepack prepare pnpm@9 --activate
 WORKDIR /app
 
 FROM base AS build
 COPY . .
 RUN pnpm install --no-frozen-lockfile
+# Upstream-Lockfile ist oft monatelang alt: Pakete innerhalb der erlaubten
+# Versionsbereiche auf den neuesten Stand bringen (Sicherheitsfixes), keine Major-Spruenge.
+RUN pnpm update -r
 RUN pnpm --filter @ts6/common run build
 RUN pnpm --filter @ts6/frontend run build
 RUN pnpm --filter @ts6/backend exec prisma generate
@@ -33,7 +36,7 @@ RUN mkdir -p /prisma-standalone && cd /prisma-standalone \
   && test -f /prisma-cli-bundle/extra-atprisma/engines/package.json
 
 # ── Stage 2: Combined Runtime ────────────────────────────────
-FROM node:20-slim AS production
+FROM node:22-slim AS production
 
 # System-Tools: nginx, supervisord, ffmpeg, yt-dlp, openssl
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -48,7 +51,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Prisma CLI braucht Node im PATH (bereits vorhanden durch node:20-slim)
+# Prisma CLI braucht Node im PATH (bereits vorhanden durch node:22-slim)
 
 # ── Frontend ────────────────────────────────────────────────
 COPY --from=build /app/packages/frontend/dist /usr/share/nginx/html
